@@ -35,6 +35,14 @@ UPSTREAM = "connyay"
 # (push target). Used by `src:fork` and `src:clone`.
 FORK = "joeblew999"
 
+# Working branch in each .src/<repo> for the Cedar+Kumo integration.
+WORK_BRANCH = "cedar"
+
+# Path to the Kumo+Orange variant of the multitenant frontend.
+# Sibling to the original `web/`, which we leave untouched as the
+# visual baseline / reference implementation.
+MULTITENANT_WEB = ".src/example-multitenant-worker/web-kumo"
+
 # Better Rust diagnostics during dev.
 RUST_BACKTRACE = "1"
 
@@ -164,20 +172,54 @@ for policy in (glob examples/*-policies/policies/*.cedar) {
 # kumo:* — Kumo UI frontend helpers (for consumer examples)
 # =============================================================================
 
-[tasks."kumo:setup"]
-description = "Initialize Kumo UI (Orange theme is configured in kumo.json / Tailwind)"
+[tasks."kumo:web-install"]
+description = "Install Kumo + Tailwind into the multitenant web/ (pnpm)"
 shell = "nu -c"
-run = "kumo init"
+run = """
+cd $env.MULTITENANT_WEB
+pnpm add -D @cloudflare/kumo tailwindcss postcss autoprefixer
+pnpm add @phosphor-icons/react
+"""
+
+[tasks."kumo:web-init"]
+description = "Run `kumo init` in multitenant web/ (creates kumo.json)"
+shell = "nu -c"
+run = """
+cd $env.MULTITENANT_WEB
+pnpm exec kumo init
+"""
+
+[tasks."kumo:web-dev"]
+description = "Vite dev server in multitenant web/"
+shell = "nu -c"
+run = """
+cd $env.MULTITENANT_WEB
+pnpm dev
+"""
+
+[tasks."kumo:web-build"]
+description = "Build the multitenant web/ for production"
+shell = "nu -c"
+run = """
+cd $env.MULTITENANT_WEB
+pnpm build
+"""
 
 [tasks."kumo:list-blocks"]
-description = "List available Kumo blocks"
+description = "List available Kumo blocks (page templates)"
 shell = "nu -c"
-run = "kumo blocks"
+run = """
+cd $env.MULTITENANT_WEB
+pnpm exec kumo blocks
+"""
 
 [tasks."kumo:list-components"]
-description = "List installed Kumo components"
+description = "List Kumo components installed in multitenant web/"
 shell = "nu -c"
-run = "kumo ls"
+run = """
+cd $env.MULTITENANT_WEB
+pnpm exec kumo ls
+"""
 
 
 # =============================================================================
@@ -268,4 +310,27 @@ shell = "nu -c"
 run = """
 rm -rf .src
 mise run src:clone
+"""
+
+[tasks."src:create-branch"]
+description = "Create $WORK_BRANCH in each .src/<repo> (if not already there)"
+shell = "nu -c"
+run = """
+let branch = $env.WORK_BRANCH
+for entry in (ls .src | where type == dir) {
+  let path = $entry.name
+  let repo = ($path | path basename)
+  print $"=== ($repo) ==="
+  let current = (git -C $path branch --show-current | str trim)
+  if ($current == $branch) {
+    print $"already on ($branch)"
+  } else {
+    let branches = (git -C $path branch | lines | each { str trim --left --char '*' } | each { str trim })
+    if ($branch in $branches) {
+      git -C $path checkout $branch
+    } else {
+      git -C $path checkout -b $branch
+    }
+  }
+}
 """
