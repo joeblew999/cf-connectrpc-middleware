@@ -228,6 +228,51 @@ When porting, the cheapest validation is: install Kumo, run
 -- PageHeader`, confirm it picks up the new theme via the ThemeToggle.
 If that works, the rest will too.
 
+### CSS architecture — cascade layers are the spine
+
+Three things compete for paint precedence: legacy editorial styles,
+Kumo's utility classes, and our hand-authored overrides. We use CSS
+Cascade Layers in [styles.css][styles] to make the order explicit:
+
+```
+@layer legacy, theme, base, components, utilities, editorial;
+```
+
+- `legacy` — `legacy-styles.css` imported under `layer(legacy)`. Lowest
+  precedence — any layered rule beats it. This is why our Kumo Button
+  variants paint correctly without `!important` or specificity hacks.
+- `theme` / `base` / `components` / `utilities` — Tailwind v4 + Kumo
+  defaults.
+- `editorial` — `theme-editorial-extras.css` + `layout-fixes.css`
+  imported under `layer(editorial)`. Last layer = highest precedence,
+  so selector overrides (sidebar reset, h1 Doto font, mobile fixes) win
+  over utilities cleanly.
+
+**Without the layer wrap, legacy is unlayered → trumps everything →
+forces every override into a specificity war.** That's the trap I fell
+into for hours before the user pointed it out. Don't repeat it.
+
+The one place `!important` remains is the ThemeToggle hide on mobile.
+That's a fight with inline `style={{ display: "inline-flex" }}` —
+inline styles beat all layers, period. Documented in the file.
+
+### Porting mobile fixes
+
+`layout-fixes.css` annotates each rule with `REUSABLE WHEN: [tag]`:
+
+- `[universal]` — pure HTML/CSS; works in any project (table h-scroll,
+  long-ID truncation).
+- `[Kumo]` — needs `@cloudflare/kumo` (AppShell padding, sidebar
+  overlay z-index).
+- `[editorial]` — needs the legacy editorial shell (`.shell`, `.topbar`,
+  `.topnav` from `web/src/App.tsx` pattern).
+
+When porting, skim the file and drop rules whose tags don't apply.
+Most projects keep `[universal]` + `[Kumo]`; only repos that lifted the
+editorial shell keep `[editorial]`.
+
+[styles]: .src/example-multitenant-worker/web-kumo/src/styles.css
+
 ### mise task layout
 
 All tasks are **`noun:verb`** — no bare verbs at the top level.
