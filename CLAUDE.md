@@ -228,6 +228,41 @@ When porting, the cheapest validation is: install Kumo, run
 -- PageHeader`, confirm it picks up the new theme via the ThemeToggle.
 If that works, the rest will too.
 
+### Using the Kumo CLI properly
+
+The kumo CLI has more than `add` / `ls`. The most useful command for
+agents:
+
+- **`mise run kumo:ai`** — prints Kumo's official AI usage guide. The
+  canonical reference for every component's variants, props, and
+  compound-subcomponent API (`<Dialog.Root>`, `<Combobox.Item>`, etc.).
+  **Run this before authoring a new Kumo-component-heavy page or
+  showcase entry** — it saves the trial-and-error of guessing
+  `Dialog.Trigger render={...}` vs `<DialogTrigger asChild>` (the
+  former is correct).
+- **`mise run kumo:doc -- <Name>`** — full doc for one component.
+- **`mise run kumo:docs`** — docs for ALL 42 primitives.
+- **`mise run kumo:list-blocks`** — installable layout blocks (just 3:
+  PageHeader, ResourceListPage, DeleteResource).
+- **`mise run kumo:add-block -- <Name>`** — copy a block's source into
+  `src/components/kumo/`. Interactive prompt only on overwrite.
+- **`mise run kumo:migrate`** — token rename map when bumping Kumo.
+- **`mise run kumo:list-components`** — show what's already in
+  `src/components/kumo/`.
+
+The Kumo CSS import order is opinionated and matters. Per `kumo:ai`:
+
+```css
+@source "../node_modules/@cloudflare/kumo/dist";
+@import "@cloudflare/kumo/styles";
+@import "tailwindcss";
+```
+
+`@source` first (tells Tailwind to scan Kumo's compiled JS for class
+names), then Kumo's tokens (so they register before Tailwind processes
+utilities), then Tailwind. Putting tailwind first will silently break
+some utility-class outputs.
+
 ### CSS architecture — cascade layers are the spine
 
 Three things compete for paint precedence: legacy editorial styles,

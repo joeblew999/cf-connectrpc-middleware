@@ -339,6 +339,30 @@ cd $env.MULTITENANT_WEB
 pnpm exec kumo doc $env.usage_component
 """
 
+[tasks."kumo:docs"]
+description = "Dump docs for ALL Kumo components in one go (pipe to a file for reference)."
+shell = "nu -c"
+run = """
+cd $env.MULTITENANT_WEB
+pnpm exec kumo docs
+"""
+
+[tasks."kumo:ai"]
+description = "Print the Kumo AI usage guide — the canonical API + variants reference. Run this BEFORE adding a new Kumo component to the codebase; it answers what props/compound subcomponents to use."
+shell = "nu -c"
+run = """
+cd $env.MULTITENANT_WEB
+pnpm exec kumo ai
+"""
+
+[tasks."kumo:migrate"]
+description = "Show Kumo token rename map (helpful when bumping the @cloudflare/kumo version). Use --classes for class-level mappings."
+shell = "nu -c"
+run = """
+cd $env.MULTITENANT_WEB
+pnpm exec kumo migrate
+"""
+
 
 # =============================================================================
 # src:* — .src/ workspace of upstream example repos
