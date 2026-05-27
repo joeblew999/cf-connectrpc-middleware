@@ -1,17 +1,14 @@
 // Cedar schema for the connyay/example-multitenant-worker authorization model.
 //
-// Mirrors the entity/role topology found in src/services/authz.rs:
-//   - BillingAccount sits at the top of every tenant.
-//   - Organization belongs to exactly one BillingAccount.
-//   - Memberships exist on BOTH levels: org-membership and billing-membership.
-//   - Owner role on either level can authorize org-level actions
-//     (require_org_or_billing_owner).
+// Mirrors the design of src/auth/session.rs::SessionContext, which already
+// carries the active scope (billing + optional org + role) for the request.
+// We pass that scope through Cedar's per-request `context` rather than
+// duplicating membership data as Sets on the User entity.
 //
-// Memberships are encoded as attribute Sets on the User entity rather than
-// separate Membership entities. This keeps policies as simple set-containment
-// checks. Roles are split into separate sets so policies don't need to filter
-// by role at evaluation time. The data layer is responsible for maintaining
-// the owner-implies-member invariant.
+// This matches the example's "one active context per session" model
+// (users switch context via the SwitchContext RPC). It also avoids any
+// per-request DB lookup for memberships — the macaroon already attenuated
+// the capability at session-issue time.
 
 // ---- Entities ----------------------------------------------------------
 
@@ -28,29 +25,34 @@ entity Invitation in [Organization] {
 
 entity SsoConfig;
 
+// User: identity only. The session's pinned scope is in context, not here.
 entity User {
   email: String,
-  ownerOrgs:       Set<Organization>,
-  memberOrgs:      Set<Organization>,
-  ownerBillings:   Set<BillingAccount>,
-  memberBillings:  Set<BillingAccount>,
+};
+
+// ---- Shared context type -----------------------------------------------
+
+// The verified session scope (built from SessionContext at request time).
+// `org` is optional because not every action is org-scoped.
+type ScopeContext = {
+  billing: BillingAccount,
+  org?: Organization,
+  role: String,            // "owner" | "member" — the session-pinned role
 };
 
 // ---- Action groups -----------------------------------------------------
 
 action OrgReadActions;
 action OrgWriteActions;
-action OrgOwnerActions;     // configure SSO, invite/remove/update members, delete
+action OrgOwnerActions;
 
 action BillingReadActions;
-action BillingOwnerActions; // payment, subscription, sso, members, delete
+action BillingOwnerActions;
 
 action InvitationActions;
-action AuthPublicActions;   // signup/login/sso — no session required
+action AuthPublicActions;
 
-// ---- Auth service (public — Cedar simply permits) -----------------------
-// Listed for completeness; the worker's CedarLayer is expected to skip
-// evaluation for actions in AuthPublicActions (no principal required).
+// ---- Auth service (public — no session required) -----------------------
 
 action "workers.auth.v1.AuthService.Signup",
        "workers.auth.v1.AuthService.Login",
@@ -61,7 +63,7 @@ action "workers.auth.v1.AuthService.Signup",
   in [AuthPublicActions]
   appliesTo {
     principal: User,
-    resource: User,           // self / anonymous
+    resource: User,
   };
 
 // ---- Org service -------------------------------------------------------
@@ -70,6 +72,7 @@ action "workers.org.v1.OrgService.CreateOrganization"
   appliesTo {
     principal: User,
     resource: BillingAccount,
+    context: ScopeContext,
   };
 
 action "workers.org.v1.OrgService.GetOrganization",
@@ -78,6 +81,7 @@ action "workers.org.v1.OrgService.GetOrganization",
   appliesTo {
     principal: User,
     resource: Organization,
+    context: ScopeContext,
   };
 
 action "workers.org.v1.OrgService.InviteMember",
@@ -89,6 +93,7 @@ action "workers.org.v1.OrgService.InviteMember",
   appliesTo {
     principal: User,
     resource: Organization,
+    context: ScopeContext,
   };
 
 // ---- Billing service ---------------------------------------------------
@@ -101,6 +106,7 @@ action "workers.billing.v1.BillingService.GetBillingAccount",
   appliesTo {
     principal: User,
     resource: BillingAccount,
+    context: ScopeContext,
   };
 
 action "workers.billing.v1.BillingService.InviteMember",
@@ -115,10 +121,13 @@ action "workers.billing.v1.BillingService.InviteMember",
   appliesTo {
     principal: User,
     resource: BillingAccount,
+    context: ScopeContext,
   };
 
 // ---- Invitation service ------------------------------------------------
 
+// Invitee-side actions: only the invited email may act. Doesn't need scope —
+// the email match alone is the authorization signal.
 action "workers.invitation.v1.InvitationService.GetInvitation",
        "workers.invitation.v1.InvitationService.AcceptInvitation",
        "workers.invitation.v1.InvitationService.DeclineInvitation"
@@ -132,13 +141,15 @@ action "workers.invitation.v1.InvitationService.ListPendingInvitations"
   in [InvitationActions]
   appliesTo {
     principal: User,
-    resource: User,    // self
+    resource: User,
   };
 
+// Owner-side actions: org owner only. Requires scope.
 action "workers.invitation.v1.InvitationService.ResendInvitation",
        "workers.invitation.v1.InvitationService.RevokeInvitation"
   in [OrgOwnerActions]
   appliesTo {
     principal: User,
     resource: Invitation,
+    context: ScopeContext,
   };

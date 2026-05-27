@@ -1,8 +1,8 @@
 // Invitation policies.
 //
-// Get / Accept / Decline: only the invited email may act.
-// Resend / Revoke: org owner only (handled by OrgOwnerActions group).
+// Get / Accept / Decline: only the invited email may act (no scope needed).
 // ListPending: principal-on-self.
+// Resend / Revoke: org owner only (uses session scope).
 
 @id("invitation-act-by-invitee")
 permit (
@@ -26,4 +26,17 @@ permit (
 )
 when {
   principal == resource
+};
+
+@id("invitation-owner-actions")
+permit (
+  principal is User,
+  action in [
+    Action::"workers.invitation.v1.InvitationService.ResendInvitation",
+    Action::"workers.invitation.v1.InvitationService.RevokeInvitation"
+  ],
+  resource is Invitation
+)
+when {
+  context.billing == resource.org.billing && context.role == "owner"
 };

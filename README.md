@@ -29,6 +29,7 @@ https://github.com/cedar-policy/cedar has a browser wasm and so can also run on 
 - **Multi-tenant authz is a ReBAC problem.** Rules like "an owner of the billing account can also act on its orgs" tangle quickly when hand-rolled. Cedar expresses them as ~5-line policies.
 - **Policies live separately from code.** `.cedar` files version alongside the Rust source, type-checked against a schema by `cedar validate` — typos and dangling actions fail at lint time, not in production.
 - **Wasm-native, microsecond decisions.** Cedar's evaluator runs inside the Worker. No external service, no extra round trip.
+- **Composes cleanly with the macaroon session.** The example's `AuthLayer` already pins (billing, org, role) on the verified session at request-issue time. Our `CedarLayer` reads that pinned scope and passes it through Cedar's `context` — no DB lookup at authorization time. Macaroon attenuates *what scope a token covers*; Cedar evaluates *whether the action is allowed at that scope*. Two layers, each doing what it does best. See [examples/multitenant-policies/](examples/multitenant-policies/README.md).
 
 
 

@@ -1,20 +1,17 @@
 // Org-level policies.
 //
-// Mirrors the require_* helpers in
-// .src/example-multitenant-worker/src/services/authz.rs.
-//
-// Owner-of-billing also authorizes org-owner actions
-// (matches require_org_or_billing_owner).
+// The session has already pinned (billing, org?, role) as the active scope.
+// These policies enforce role-on-scope; the data-layer is responsible for
+// matching `context.billing` to the resource's parent billing account.
 
-@id("org-read-by-member")
+@id("org-read-by-billing-member")
 permit (
   principal is User,
   action in Action::"OrgReadActions",
   resource is Organization
 )
 when {
-  principal.memberOrgs.contains(resource) ||
-  principal.memberBillings.contains(resource.billing)
+  context.billing == resource.billing
 };
 
 @id("org-write-by-owner")
@@ -24,8 +21,7 @@ permit (
   resource is Organization
 )
 when {
-  principal.ownerOrgs.contains(resource) ||
-  principal.ownerBillings.contains(resource.billing)
+  context.billing == resource.billing && context.role == "owner"
 };
 
 @id("org-create-by-billing-owner")
@@ -35,5 +31,5 @@ permit (
   resource is BillingAccount
 )
 when {
-  principal.ownerBillings.contains(resource)
+  context.billing == resource && context.role == "owner"
 };

@@ -1,7 +1,7 @@
 // Billing-level policies.
 //
-// Read: any billing member.
-// Mutate: billing owner only (matches require_billing_owner in authz.rs).
+// Read: any billing member (session pins billing to the right one).
+// Mutate: owner role.
 
 @id("billing-read-by-member")
 permit (
@@ -10,7 +10,7 @@ permit (
   resource is BillingAccount
 )
 when {
-  principal.memberBillings.contains(resource)
+  context.billing == resource
 };
 
 @id("billing-write-by-owner")
@@ -20,5 +20,5 @@ permit (
   resource is BillingAccount
 )
 when {
-  principal.ownerBillings.contains(resource)
+  context.billing == resource && context.role == "owner"
 };
