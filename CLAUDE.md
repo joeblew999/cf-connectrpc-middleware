@@ -175,6 +175,59 @@ source, examples, CLI source).
 **All mise task scripts use nushell** (`shell = "nu -c"`). Don't add
 bash-based tasks.
 
+### Cloning this stack to a new project
+
+This repo is a template. To reuse the editorial-Kumo + CF-deploy +
+seed pattern in another project:
+
+**Portable bits — copy as-is, edit names:**
+
+- `scripts/theme-generator/{config.editorial.mjs,generate.mjs}` — works
+  for any Kumo project. Edit `config.editorial.mjs` token values for the
+  new palette; everything else stays.
+- `src/styles/{theme-editorial.css,theme-editorial-extras.css,layout-fixes.css}`
+  + `@source "../node_modules/@cloudflare/kumo/dist"` in `styles.css`.
+- `src/components/ThemeToggle.tsx` + the topnav wiring.
+- `vite.config.http.ts` + `dev:http` script for headless screenshot tools.
+- `scripts/seed.mjs` skeleton — keep the `rpc()` + idempotent-detect
+  pattern; swap the specific RPC calls for the new project's protos.
+- The whole `cf:*` / `worker:deploy` / `worker:teardown` / `seed:prod`
+  mise task family — keep verbatim except for keychain item names and
+  the D1 database name.
+- `fnox.toml` shape with `service = "fnox"` + repo-prefixed item names.
+
+**Repo-specific — find/replace per new project:**
+
+- `MULTITENANT_WEB` / `MULTITENANT_WORKER` env vars → e.g. `WEB` / `WORKER`.
+- `CONNECTRPC_CEDAR_*` keychain item names → `<NEW_PROJECT>_*` (per the
+  fnox cross-repo contract — names *are* the API boundary).
+- `workers-multitenant-cedar` D1 database name → `workers-<project>`.
+- `UPSTREAM` / `FORK` / `WORK_BRANCH` if not using the `.src/` fork
+  pattern.
+- Page components + seed RPC calls.
+
+**Conventions that make the stack legible:**
+
+- All tasks are `noun:verb` — no bare verbs at the top level.
+- Five top-level namespaces: `cargo`, `cedar`, `cf`, `dev`, `kumo`,
+  `seed`, `src`, `worker`. Each maps to one concern.
+- `cf:bootstrap` (one-shot secret gen) is separate from `worker:deploy`
+  (idempotent re-run loop). Bootstrap rotates SESSION_KEY — don't run it
+  on an existing prod with users.
+- `worker:teardown` is destructive but interactive — requires typing the
+  worker name to confirm.
+- `seed:dev` and `seed:prod` share `scripts/seed.mjs` — `BASE` env var
+  picks the target. `.seed.json` always gitignored.
+- Theme token changes go through `scripts/theme-generator/` and
+  `mise run kumo:theme-gen`, never hand-edit the generated CSS.
+- Non-token selector fixes (sidebar reset, h1 fonts) go in
+  `theme-editorial-extras.css`; cross-theme layout in `layout-fixes.css`.
+
+When porting, the cheapest validation is: install Kumo, run
+`mise run kumo:list-blocks`, install one with `mise run kumo:add-block
+-- PageHeader`, confirm it picks up the new theme via the ThemeToggle.
+If that works, the rest will too.
+
 ### mise task layout
 
 All tasks are **`noun:verb`** — no bare verbs at the top level.
