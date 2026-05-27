@@ -234,7 +234,7 @@ pnpm build
 """
 
 [tasks."kumo:list-blocks"]
-description = "List available Kumo blocks (page templates)"
+description = "List available Kumo blocks (catalog from registry)"
 shell = "nu -c"
 run = """
 cd $env.MULTITENANT_WEB
@@ -242,11 +242,33 @@ pnpm exec kumo blocks
 """
 
 [tasks."kumo:list-components"]
-description = "List Kumo components installed in multitenant web/"
+description = "List Kumo blocks already installed in src/components/kumo/"
 shell = "nu -c"
 run = """
 cd $env.MULTITENANT_WEB
 pnpm exec kumo ls
+"""
+
+[tasks."kumo:add-block"]
+description = "Copy a Kumo block's source into src/components/kumo/. Usage: mise run kumo:add-block -- <BlockName>"
+shell = "nu -c"
+usage = '''
+arg "block" help="Block name (e.g. PageHeader, ResourceListPage, DeleteResource). Run kumo:list-blocks to see what's available."
+'''
+run = """
+cd $env.MULTITENANT_WEB
+pnpm exec kumo add $env.usage_block
+"""
+
+[tasks."kumo:doc"]
+description = "Show docs for a Kumo component. Usage: mise run kumo:doc -- <ComponentName>"
+shell = "nu -c"
+usage = '''
+arg "component" help="Component name (e.g. Button, Sidebar, Table)"
+'''
+run = """
+cd $env.MULTITENANT_WEB
+pnpm exec kumo doc $env.usage_component
 """
 
 
