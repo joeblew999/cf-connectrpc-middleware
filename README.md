@@ -1,5 +1,27 @@
 # connectrpc-cedar
 
+## Live demo
+
+A Worker deployed to Cloudflare with the multitenant scaffold + editorial
+Kumo theme is running at:
+
+**https://workers-multitenant.gedw99.workers.dev**
+
+Pre-seeded test accounts (all password `demo-password-123`):
+
+| Email              | What they have                                        |
+| ------------------ | ----------------------------------------------------- |
+| alice@acme.io      | Owns the "Acme" org; sent the pending invites below   |
+| bob@acme.io        | Member of Acme (accepted invite)                      |
+| carol@partner.dev  | Pending org invite to Acme (not yet accepted)         |
+| dave@late.io       | Pending billing invite from alice                     |
+
+Sign in at `/login` as any of them. The toggle in the top-right switches
+between the **editorial** theme (dark, red accent — what we're building)
+and the default **kumo** theme (Cloudflare orange) for A/B comparison.
+
+To redeploy or tear down, see `mise tasks | grep -E "cf:|worker:|seed:"`.
+
 ## Intent
 
 Rust based.
@@ -44,15 +66,16 @@ https://github.com/cedar-policy/cedar-for-agents might be useful too.
 
 ## GUI
 
-React using Kumo. Love that Orange look !!
+React on top of [Kumo](https://kumo-ui.com/) primitives. The visual target
+is the editorial dark-mode look already shipped in
+`example-multitenant-worker/web/` (red `#d71921` accent, Space Grotesk /
+Doto type). Kumo's Cloudflare-Orange default is overridden via
+[web-kumo/src/kumo-theme.css](.src/example-multitenant-worker/web-kumo/src/kumo-theme.css)
+so components inherit the same tokens as the `web/` baseline.
 
-Easy to include https://kumo-ui.com/installation/
-
-worth installing the cli : https://kumo-ui.com/cli ?
-
-Colour referecnes: https://kumo-ui.com/colors/ so we can get the Orange look.
-
-Maybe the Registry is useful ? https://kumo-ui.com/registry/
+- Install: https://kumo-ui.com/installation/
+- CLI (for adding blocks): https://kumo-ui.com/cli
+- Registry: https://kumo-ui.com/registry/
 
 
 

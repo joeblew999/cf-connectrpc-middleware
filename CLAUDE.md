@@ -116,13 +116,56 @@ Phases:
 
 The multitenant fork has **two** frontends now:
 
-- `web/` — original React app, untouched, kept as visual baseline.
-- `web-kumo/` — Kumo + Cloudflare Orange theme, Tailwind v4. Phase 1
-  floor is in place (build succeeds). Page-by-page conversion happens
-  in Phases 2-5 (see [examples/multitenant-policies/ROADMAP.md][rm]).
+- `web/` — original React app, **the visual source of truth**. Editorial
+  dark-mode design, red `#d71921` accent, Space Grotesk + Doto type.
+  Only contains Login / Signup / Dashboard / AcceptInvite.
+- `web-kumo/` — same look-and-feel, rebuilt on `@cloudflare/kumo`
+  primitives so we get Breadcrumbs / Banner / PageHeader / Sidebar etc.
+  for free. Kumo's default Cloudflare-Orange tokens are overridden by a
+  proper *generated* theme — `src/styles/theme-editorial.css` emitted by
+  `scripts/theme-generator/generate.mjs` from `config.editorial.mjs`.
+  Hand-authored selectors that the token system can't express (sidebar
+  button reset, h1 Doto font) live in `src/styles/theme-editorial-extras.css`.
+  Layout fixes that apply across all themes (shell width when AppShell
+  is mounted, mobile topbar wrap, mobile sidebar overlay) live in
+  `src/styles/layout-fixes.css`.
+  Members / Invitations / Billing are **net-new** here — no `web/`
+  precedent. Design them in the editorial style; if Kumo doesn't have a
+  block, install one with `mise run kumo:add-block -- <Name>`.
+
+### Theme architecture
+
+The editorial theme is structurally identical to Kumo's own
+`theme-kumo.css` / `theme-fedramp.css`: it's a CSS file scoped to
+`[data-theme="editorial"]` so flipping themes is a one-attribute change.
+The `ThemeToggle` component in the topnav lets you A/B between
+`editorial` and default `kumo` at runtime (choice persists to
+`localStorage["wm.theme"]`, also accepts `?theme=…` URL param).
+
+To change the editorial palette, **always edit `config.editorial.mjs`
+and re-run `mise run kumo:theme-gen`** — don't hand-edit the generated
+CSS. The generator validates token names against
+`@cloudflare/kumo/scripts/theme-generator/config` and warns on typos.
+
+Tailwind v4 only scans source files for utility class names, and Kumo's
+classes live inside `node_modules/@cloudflare/kumo/dist`. `styles.css`
+adds `@source "../node_modules/@cloudflare/kumo/dist"` so Tailwind emits
+rules for `.bg-kumo-badge-orange`, `.bg-kumo-info-tint`, etc. Without
+that line, badges and banners render colorless.
 
 `mise.toml::MULTITENANT_WEB` points at `web-kumo/`. All `kumo:web-*`
 tasks (install, init, dev, build) operate there.
+
+### Dev URLs (three of them — pick the right one)
+
+| URL                          | Server   | When to use                                  |
+| ---------------------------- | -------- | -------------------------------------------- |
+| `https://localhost:5173/`    | Vite     | Real Chrome iteration. HMR is instant.       |
+| `http://localhost:5175/`     | Vite     | Headless screenshot tools (Claude preview, Playwright). HTTP-only — no cert dance. Started by `mise run kumo:web-dev-http` via `vite.config.http.ts`. |
+| `https://localhost:8787/`    | Wrangler | Production-like wasm path. Stale until you `mise run kumo:web-reload` (= build + restart). |
+
+Pitchfork supervises both HTTPS daemons (`worker` on :8787, `web` on
+:5173); the HTTP variant on :5175 is launched on demand.
 
 Kumo's own repo is cloned at `.src/kumo/` for reference (component
 source, examples, CLI source).
@@ -141,7 +184,13 @@ All tasks are **`noun:verb`** — no bare verbs at the top level.
   `test`, `lint`, `format`, `fix`, `watch`, `machete`, `expand`, `clean`,
   `pre-commit`)
 - `cedar:*` — Cedar policy workflow (`validate`, `format`)
-- `kumo:*` — frontend setup helpers (`setup`, `list-blocks`, `list-components`)
+- `kumo:*` — frontend workflow (`web-install`, `web-init`, `web-dev`,
+  `web-dev-http`, `web-build`, `web-reload`, `theme-gen`, `list-blocks`,
+  `list-components`, `add-block`, `doc`)
+- `seed:dev` — populate local D1 with alice/bob/carol/dave + Acme org +
+  pending invitations via Connect RPC. Idempotent. Writes `.seed.json`
+  with session tokens so you can switch user in DevTools:
+  `localStorage.setItem('wm.session', JSON.stringify({token,whoami})); location.reload()`
 - `src:*` — `.src/` upstream-repo workspace (`clone`, `fork`, `update`,
   `show-status`, `reset`)
 

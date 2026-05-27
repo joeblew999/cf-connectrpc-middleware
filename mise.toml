@@ -236,7 +236,7 @@ run = "pitchfork tui"
 # =============================================================================
 
 [tasks."kumo:web-install"]
-description = "Install Kumo + Tailwind into the multitenant web/ (pnpm)"
+description = "Install Kumo + Tailwind into the multitenant web-kumo/ (pnpm)"
 shell = "nu -c"
 run = """
 cd $env.MULTITENANT_WEB
@@ -245,7 +245,7 @@ pnpm add @phosphor-icons/react
 """
 
 [tasks."kumo:web-init"]
-description = "Run `kumo init` in multitenant web/ (creates kumo.json)"
+description = "Run `kumo init` in web-kumo/ (creates kumo.json)"
 shell = "nu -c"
 run = """
 cd $env.MULTITENANT_WEB
@@ -253,19 +253,52 @@ pnpm exec kumo init
 """
 
 [tasks."kumo:web-dev"]
-description = "Vite dev server in multitenant web/"
+description = "Vite dev server in web-kumo/ (HTTPS :5173, prod-parity)"
 shell = "nu -c"
 run = """
 cd $env.MULTITENANT_WEB
 pnpm dev
 """
 
+[tasks."kumo:web-dev-http"]
+description = "Vite dev server, HTTP on :5175 (for headless screenshot tools)"
+shell = "nu -c"
+run = """
+cd $env.MULTITENANT_WEB
+pnpm dev:http
+"""
+
 [tasks."kumo:web-build"]
-description = "Build the multitenant web/ for production"
+description = "Build web-kumo/ for production (output: dist/)"
 shell = "nu -c"
 run = """
 cd $env.MULTITENANT_WEB
 pnpm build
+"""
+
+[tasks."kumo:web-reload"]
+description = "Rebuild web-kumo/ and restart pitchfork's worker daemon so :8787 serves the fresh dist/ (otherwise wrangler keeps the old asset manifest)"
+shell = "nu -c"
+depends = ["kumo:web-build"]
+run = """
+pitchfork stop worker
+pitchfork start worker
+"""
+
+[tasks."kumo:theme-gen"]
+description = "Regenerate src/styles/theme-editorial.css from scripts/theme-generator/config.editorial.mjs (validates token names against Kumo's THEME_CONFIG)"
+shell = "nu -c"
+run = """
+cd $env.MULTITENANT_WEB
+pnpm theme:gen
+"""
+
+[tasks."seed:dev"]
+description = "Seed local D1 with realistic users + org + invitations via Connect RPC. Writes .seed.json with session tokens."
+shell = "nu -c"
+run = """
+cd $env.MULTITENANT_WEB
+pnpm seed:dev
 """
 
 [tasks."kumo:list-blocks"]
@@ -418,4 +451,124 @@ for entry in (ls .src | where type == dir) {
     }
   }
 }
+"""
+
+
+# =============================================================================
+# cf:* / worker:* — Cloudflare deploy lifecycle (deploy → seed → teardown).
+#
+# Secrets resolve via fnox.toml ↔ macOS keychain. All tasks shell out to
+# wrangler under `fnox exec --` so CLOUDFLARE_API_TOKEN / ACCOUNT_ID land
+# in the environment without touching the filesystem.
+# =============================================================================
+
+[tasks."cf:check"]
+description = "Verify CF auth + required fnox secrets resolve. Safe to re-run."
+shell = "nu -c"
+run = """
+fnox check
+fnox exec -- wrangler whoami
+"""
+
+[tasks."cf:bootstrap"]
+description = "First-time setup: generate SESSION_KEY (32 random bytes, base64) and store in keychain. Re-running OVERWRITES the existing key — only do this before any users have signed up."
+shell = "nu -c"
+run = """
+let key = (openssl rand -base64 32 | str trim)
+print $"generated SESSION_KEY: ($key | str substring 0..10)... \\(($key | str length) chars\\)"
+# -p keychain is REQUIRED — without it fnox inlines the plaintext into
+# fnox.toml instead of storing in the keychain.
+fnox set -p keychain CONNECTRPC_CEDAR_SESSION_KEY $key
+print "stored in keychain under CONNECTRPC_CEDAR_SESSION_KEY"
+"""
+
+[tasks."worker:d1-create-remote"]
+description = "Create the remote D1 database for this fork and stash its id in fnox. Idempotent (skips if id already in keychain)."
+shell = "nu -c"
+run = """
+let existing = (try { fnox get CONNECTRPC_CEDAR_D1_DATABASE_ID } catch { "" })
+if ($existing | is-not-empty) {
+  print $"D1 already provisioned: ($existing)"
+  return
+}
+print "creating remote D1 'workers-multitenant-cedar'..."
+let out = (fnox exec -- wrangler d1 create workers-multitenant-cedar)
+print $out
+# wrangler 4.90 prints JSON-ish `"database_id": "..."`; older versions
+# used TOML `database_id = "..."`. Accept either.
+let id = ($out | parse -r '"?database_id"?\\s*[:=]\\s*"(?<id>[0-9a-f-]+)"' | get id.0?)
+if ($id | is-empty) {
+  print "FAIL: could not extract database_id from wrangler output; set manually with `fnox set -p keychain CONNECTRPC_CEDAR_D1_DATABASE_ID <id>`"
+  exit 1
+}
+fnox set -p keychain CONNECTRPC_CEDAR_D1_DATABASE_ID $id
+print $"stored database_id: ($id)"
+print ""
+print "NEXT: copy this id into .src/example-multitenant-worker/wrangler.toml"
+print "      under [[d1_databases]].database_id, then run worker:d1-migrate-remote."
+"""
+
+[tasks."worker:d1-migrate-remote"]
+description = "Apply migrations to the REMOTE D1. Requires wrangler.toml's database_id to match $CONNECTRPC_CEDAR_D1_DATABASE_ID."
+shell = "nu -c"
+run = """
+cd $env.MULTITENANT_WORKER
+fnox exec -- wrangler d1 migrations apply DB --remote
+"""
+
+[tasks."worker:deploy"]
+description = "Build web-kumo (no TS check — vite/esbuild handles it), set SESSION_KEY secret, deploy."
+shell = "nu -c"
+run = """
+let root = (pwd)
+cd $"($root)/($env.MULTITENANT_WEB)"
+pnpm build:nocheck
+cd $"($root)/($env.MULTITENANT_WORKER)"
+print "setting SESSION_KEY wrangler secret..."
+fnox get SESSION_KEY | fnox exec -- wrangler secret put SESSION_KEY
+print "deploying worker..."
+let out = (fnox exec -- wrangler deploy)
+print $out
+let url = ($out | parse -r 'https://(?<host>[a-z0-9.-]+\\.workers\\.dev)' | get host.0?)
+if ($url | is-not-empty) {
+  let full = $"https://($url)"
+  fnox set -p keychain CONNECTRPC_CEDAR_WORKER_URL $full
+  print ""
+  print $"deployed: ($full)"
+  print $"stored in keychain as CONNECTRPC_CEDAR_WORKER_URL"
+}
+"""
+
+[tasks."seed:prod"]
+description = "Seed the DEPLOYED worker with alice/bob/carol/dave + Acme org + invitations. Reads target URL from fnox."
+shell = "nu -c"
+run = """
+let base = (fnox get CONNECTRPC_CEDAR_WORKER_URL)
+print $"seeding ($base)"
+cd $env.MULTITENANT_WEB
+BASE=$base pnpm seed:dev
+"""
+
+[tasks."worker:teardown"]
+description = "DESTRUCTIVE — delete the deployed Worker + remote D1. Asks for confirmation. Keychain entries are LEFT in place so you can redeploy."
+shell = "nu -c"
+run = """
+print "This will DELETE the deployed Worker and remote D1 database."
+print "Type the worker name 'workers-multitenant' to confirm: "
+let confirm = (input)
+if $confirm != "workers-multitenant" {
+  print "aborted"
+  exit 1
+}
+cd $env.MULTITENANT_WORKER
+print "deleting worker..."
+fnox exec -- wrangler delete --name workers-multitenant
+let dbid = (try { fnox get CONNECTRPC_CEDAR_D1_DATABASE_ID } catch { "" })
+if ($dbid | is-not-empty) {
+  print $"deleting D1 ($dbid)..."
+  fnox exec -- wrangler d1 delete workers-multitenant-cedar --skip-confirmation
+  fnox rm CONNECTRPC_CEDAR_D1_DATABASE_ID
+}
+fnox rm CONNECTRPC_CEDAR_WORKER_URL
+print "torn down. SESSION_KEY left in keychain — run cf:bootstrap again if you want a fresh one."
 """
