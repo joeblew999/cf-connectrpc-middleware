@@ -65,17 +65,6 @@ src/action.rs       path → Action mapping
 examples/           working integration with a stub connectrpc service
 ```
 
-## Order of work
-
-1. [x] Fix `mise.toml`: target → `wasm32-unknown-unknown`, bump
-       `cedar-policy-cli` to `4.11.0`.
-2. [ ] Write `Cargo.toml` with the pins above.
-3. [ ] Build `authorizer.rs` + `action.rs` (unit-testable, no Worker deps).
-4. [ ] Build `layer.rs` (Tower plumbing — copy `AuthLayer` skeleton,
-       swap logic).
-5. [ ] Add `examples/` showing it wired into a connectrpc handler.
-6. [ ] `cargo build --target wasm32-unknown-unknown` is the green gate.
-
 Frontend / Kumo UI lives in the *consumer* example workers, not in this
 crate.
 
@@ -104,13 +93,10 @@ After `src:fork` each `.src/<repo>` has both remotes:
 - `origin` → `https://github.com/joeblew999/<repo>.git` (push target)
 - `upstream` → `https://github.com/connyay/<repo>.git` (read-only source)
 
-Phases:
-
-1. ✅ **Done**: forks exist under `joeblew999/*`; `.src/` wired with both remotes.
-2. ✅ **Done**: `cedar` branch created in each fork.
-3. **Now**: patch `.src/<repo>` to integrate the Cedar middleware on
-   the `cedar` branch. Push commits to `origin/cedar`.
-4. **Later**: PRs upstream from `cedar` branches to `connyay/*`.
+Active integration work lives on the `cedar` branch of
+`example-multitenant-worker`. The two other forks have `cedar` branches
+deleted — they were placeholders never touched. PRs upstream to
+`connyay/*` happen when the cedar branch is stable.
 
 ## Kumo frontend (`web-kumo/` sibling)
 
@@ -310,28 +296,27 @@ editorial shell keep `[editorial]`.
 
 ### mise task layout
 
-All tasks are **`noun:verb`** — no bare verbs at the top level.
+All tasks are `noun:verb` — run `mise tasks` to see the full inventory.
+Namespaces:
 
-- `mise:install` — bootstrap everything in `[tools]`
-- `cargo:*` — every Rust workflow command (`check`, `build`, `build:release`,
-  `test`, `lint`, `format`, `fix`, `watch`, `machete`, `expand`, `clean`,
-  `pre-commit`)
-- `cedar:*` — Cedar policy workflow (`validate`, `format`)
-- `kumo:*` — frontend workflow (`web-install`, `web-init`, `web-dev`,
-  `web-dev-http`, `web-build`, `web-reload`, `theme-gen`, `list-blocks`,
-  `list-components`, `add-block`, `doc`)
-- `seed:dev` — populate local D1 with alice/bob/carol/dave + Acme org +
-  pending invitations via Connect RPC. Idempotent. Writes `.seed.json`
-  with session tokens so you can switch user in DevTools:
-  `localStorage.setItem('wm.session', JSON.stringify({token,whoami})); location.reload()`
-- `src:*` — `.src/` upstream-repo workspace (`clone`, `fork`, `update`,
-  `show-status`, `reset`)
+| ns | what |
+| --- | --- |
+| `mise` | bootstrap |
+| `cargo` | Rust dev loop |
+| `cedar` | Cedar policy workflow |
+| `worker` | wrangler dev + D1 migrations + deploy + teardown |
+| `kumo`   | frontend dev, build, theme-gen, block install, `kumo:ai` |
+| `cf`     | CF auth check + SESSION_KEY bootstrap |
+| `seed`   | populate local/remote D1 with `.example` users + orgs + invites |
+| `dev`    | pitchfork supervises long-running daemons |
+| `src`    | `.src/` fork workspace |
 
-Shared env in `[env]`: `WASM_TARGET`, `UPSTREAM`, `FORK`, `RUST_BACKTRACE`.
-Reference as `$env.WASM_TARGET` etc. in tasks — do **not** hardcode.
+Shared env in `[env]`: `WASM_TARGET`, `UPSTREAM`, `FORK`,
+`MULTITENANT_WEB`, `MULTITENANT_WORKER`, `RUST_BACKTRACE`.
+Reference as `$env.WASM_TARGET` etc. — do **not** hardcode.
 
 `cargo:pre-commit` chains `format + lint + test + machete` via `depends`.
-Run it before every commit.
+Run before every commit.
 
 ## Proto codegen pipeline
 
