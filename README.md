@@ -7,18 +7,22 @@ Kumo theme is running at:
 
 **https://workers-multitenant.gedw99.workers.dev**
 
-Pre-seeded test accounts (all password `demo-password-123`):
+Pre-seeded test accounts (all password `demo-password-123`).
+All emails use the `.example` TLD per RFC 6761 — guaranteed never
+to collide with real users, so the seed is safe in production:
 
-| Email              | What they have                                        |
-| ------------------ | ----------------------------------------------------- |
-| alice@acme.io      | Owns the "Acme" org; sent the pending invites below   |
-| bob@acme.io        | Member of Acme (accepted invite)                      |
-| carol@partner.dev  | Pending org invite to Acme (not yet accepted)         |
-| dave@late.io       | Pending billing invite from alice                     |
+| Email                  | What they have                                            |
+| ---------------------- | --------------------------------------------------------- |
+| alice@acme.example     | Owns Acme + 5 other orgs (scope-switcher density demo)    |
+| bob@acme.example       | Member of Acme + Engineering, owner of Marketing          |
+| carol@partner.example  | 5 pending invites across different orgs (volume demo)     |
+| dave@late.example      | Pending billing invite from alice                         |
 
-Sign in at `/login` as any of them. The toggle in the top-right switches
-between the **editorial** theme (dark, red accent — what we're building)
-and the default **kumo** theme (Cloudflare orange) for A/B comparison.
+Sign in at `/login` as any of them — or just hit `/preview` and click
+"Sign in" on the demo accounts card (each lands you on the page that
+best showcases that user). The toggle in the top-right switches between
+the **editorial** theme (dark, red accent — what we're building) and
+the default **kumo** theme (Cloudflare orange) for A/B comparison.
 
 To redeploy or tear down, see `mise tasks | grep -E "cf:|worker:|seed:"`.
 
