@@ -43,6 +43,9 @@ WORK_BRANCH = "cedar"
 # visual baseline / reference implementation.
 MULTITENANT_WEB = ".src/example-multitenant-worker/web-kumo"
 
+# Path to the multitenant worker (rust + wrangler.toml live here).
+MULTITENANT_WORKER = ".src/example-multitenant-worker"
+
 # Better Rust diagnostics during dev.
 RUST_BACKTRACE = "1"
 
@@ -170,6 +173,31 @@ for policy in (glob examples/*-policies/policies/*.cedar) {
 
 # =============================================================================
 # kumo:* — Kumo UI frontend helpers (for consumer examples)
+# =============================================================================
+
+# =============================================================================
+# worker:* — run the multitenant rust worker locally via wrangler
+# =============================================================================
+
+[tasks."worker:d1-migrate"]
+description = "Apply D1 migrations to the local Workers SQLite simulator"
+shell = "nu -c"
+run = """
+cd $env.MULTITENANT_WORKER
+wrangler d1 migrations apply DB --local
+"""
+
+[tasks."worker:dev"]
+description = "Run the multitenant worker (wrangler dev, HTTPS, serves web-kumo/dist)"
+shell = "nu -c"
+run = """
+cd $env.MULTITENANT_WORKER
+wrangler dev --local-protocol=https --port=8787
+"""
+
+
+# =============================================================================
+# kumo:* — Kumo UI work in the multitenant fork's web-kumo/
 # =============================================================================
 
 [tasks."kumo:web-install"]
