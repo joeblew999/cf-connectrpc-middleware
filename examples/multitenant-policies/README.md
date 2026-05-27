@@ -81,3 +81,12 @@ mise run cedar:validate
 
 The task globs `examples/*-policies/` so any future example dirs are
 picked up automatically.
+
+## What's next
+
+The basic port above doesn't yet justify pulling Cedar in. See
+[ROADMAP.md](ROADMAP.md) for the five Cedar-specific features to add
+(forbid guardrails, policy templates for grants, `cedar symcc`
+verification, `whoami:permissions` introspection, per-tenant policy
+overrides) and the structural changes to the example code that unlock
+them.
