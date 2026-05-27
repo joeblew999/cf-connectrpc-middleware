@@ -91,9 +91,13 @@ read-only reference and not touched by these tasks.
 | --- | --- |
 | `mise run src:clone` | Clone the three upstream repos into `.src/` |
 | `mise run src:fork`  | Fork each upstream, rewrite remotes, push main |
+| `mise run src:create-branch` | Create `cedar` branch (`$WORK_BRANCH`) in each |
 | `mise run src:update` | `git pull --ff-only` each |
 | `mise run src:show-status` | `git status -sb` each |
 | `mise run src:reset` | Nuke `.src/` and re-clone (then re-run `src:fork`) |
+
+`.src/kumo/` is also cloned (read-only — for component source + usage
+patterns). Not part of `src:*` since it's reference, not a fork target.
 
 After `src:fork` each `.src/<repo>` has both remotes:
 
@@ -103,9 +107,27 @@ After `src:fork` each `.src/<repo>` has both remotes:
 Phases:
 
 1. ✅ **Done**: forks exist under `joeblew999/*`; `.src/` wired with both remotes.
-2. **Now**: patch `.src/<repo>` to integrate the Cedar middleware.
-   Commit on a `cedar` branch and push to `origin`.
-3. **Later**: PRs upstream from those branches to `connyay/*`.
+2. ✅ **Done**: `cedar` branch created in each fork.
+3. **Now**: patch `.src/<repo>` to integrate the Cedar middleware on
+   the `cedar` branch. Push commits to `origin/cedar`.
+4. **Later**: PRs upstream from `cedar` branches to `connyay/*`.
+
+## Kumo frontend (`web-kumo/` sibling)
+
+The multitenant fork has **two** frontends now:
+
+- `web/` — original React app, untouched, kept as visual baseline.
+- `web-kumo/` — Kumo + Cloudflare Orange theme, Tailwind v4. Phase 1
+  floor is in place (build succeeds). Page-by-page conversion happens
+  in Phases 2-5 (see [examples/multitenant-policies/ROADMAP.md][rm]).
+
+`mise.toml::MULTITENANT_WEB` points at `web-kumo/`. All `kumo:web-*`
+tasks (install, init, dev, build) operate there.
+
+Kumo's own repo is cloned at `.src/kumo/` for reference (component
+source, examples, CLI source).
+
+[rm]: examples/multitenant-policies/ROADMAP.md
 
 **All mise task scripts use nushell** (`shell = "nu -c"`). Don't add
 bash-based tasks.
