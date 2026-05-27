@@ -21,6 +21,10 @@ node = "latest"
 "cargo:cargo-machete" = "latest"
 "cargo:cargo-expand" = "latest"
 
+# Pitchfork: process supervisor for long-running dev daemons (wrangler + vite).
+# Configured via pitchfork.toml at the project root.
+"aqua:jdx/pitchfork" = "latest"
+
 
 [env]
 # Single source of truth for the wasm target. Used by every cargo:* task.
@@ -194,6 +198,37 @@ run = """
 cd $env.MULTITENANT_WORKER
 wrangler dev --local-protocol=https --port=8787
 """
+
+
+# =============================================================================
+# dev:* — process supervision (pitchfork) for long-running daemons
+# Config lives in pitchfork.toml at the project root.
+# =============================================================================
+
+[tasks."dev:up"]
+description = "Start worker + web (pitchfork daemons), keep them alive"
+shell = "nu -c"
+run = "pitchfork start -l -f"
+
+[tasks."dev:down"]
+description = "Stop worker + web daemons"
+shell = "nu -c"
+run = "pitchfork stop worker web"
+
+[tasks."dev:status"]
+description = "Show running pitchfork daemons"
+shell = "nu -c"
+run = "pitchfork list"
+
+[tasks."dev:logs"]
+description = "Tail combined logs for worker + web"
+shell = "nu -c"
+run = "pitchfork logs worker web"
+
+[tasks."dev:tui"]
+description = "Pitchfork's interactive TUI dashboard"
+shell = "nu -c"
+run = "pitchfork tui"
 
 
 # =============================================================================
