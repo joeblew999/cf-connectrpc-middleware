@@ -536,6 +536,9 @@ print $out
 let url = ($out | parse -r 'https://(?<host>[a-z0-9.-]+\\.workers\\.dev)' | get host.0?)
 if ($url | is-not-empty) {
   let full = $"https://($url)"
+  # Go back to repo root so fnox finds the right fnox.toml — without
+  # this it auto-creates a stray fnox.toml inside the worker dir.
+  cd $root
   fnox set -p keychain CONNECTRPC_CEDAR_WORKER_URL $full
   print ""
   print $"deployed: ($full)"
@@ -564,13 +567,19 @@ if $confirm != "workers-multitenant" {
   print "aborted"
   exit 1
 }
-cd $env.MULTITENANT_WORKER
+let root = (pwd)
+# Read keychain entries BEFORE cd-ing so fnox finds fnox.toml at root.
+let dbid = (try { fnox get CONNECTRPC_CEDAR_D1_DATABASE_ID } catch { "" })
+cd $"($root)/($env.MULTITENANT_WORKER)"
 print "deleting worker..."
 fnox exec -- wrangler delete --name workers-multitenant
-let dbid = (try { fnox get CONNECTRPC_CEDAR_D1_DATABASE_ID } catch { "" })
 if ($dbid | is-not-empty) {
   print $"deleting D1 ($dbid)..."
   fnox exec -- wrangler d1 delete workers-multitenant-cedar --skip-confirmation
+}
+# Back to root so the fnox rm calls find the right config.
+cd $root
+if ($dbid | is-not-empty) {
   fnox rm CONNECTRPC_CEDAR_D1_DATABASE_ID
 }
 fnox rm CONNECTRPC_CEDAR_WORKER_URL
