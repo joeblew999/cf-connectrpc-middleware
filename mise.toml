@@ -1,0 +1,276 @@
+[tools]
+rust = "stable"
+node = "latest"
+"aqua:nushell/nushell" = "latest"
+
+# Cloudflare Workers CLI: dev server + deploys. Drives worker-build.
+# Note: buf is intentionally NOT here — Rust side uses connectrpc-build
+# in build.rs; TS side gets @bufbuild/buf via npm install in web/.
+"npm:wrangler" = "latest"
+
+# Frontend (consumer examples). Kumo UI for the Orange theme.
+"npm:@cloudflare/kumo" = "latest"
+
+# Cedar policy CLI (validate / authorize / format). Matches runtime cedar-policy = "4".
+"cargo:cedar-policy-cli" = "4.11.0"
+
+# Rust → wasm32 bundler invoked by wrangler for worker-rs projects.
+"cargo:worker-build" = "latest"
+
+# Dev-quality tools: unused deps, macro expansion (for connectrpc-build debugging).
+"cargo:cargo-machete" = "latest"
+"cargo:cargo-expand" = "latest"
+
+
+[env]
+# Single source of truth for the wasm target. Used by every cargo:* task.
+WASM_TARGET = "wasm32-unknown-unknown"
+
+# Original upstream owner of the example repos. .src/<repo> has a
+# remote called `upstream` pointing here (read-only — for pulling
+# updates).
+UPSTREAM = "connyay"
+
+# Your fork owner. .src/<repo> has remote `origin` pointing here
+# (push target). Used by `src:fork` and `src:clone`.
+FORK = "joeblew999"
+
+# Better Rust diagnostics during dev.
+RUST_BACKTRACE = "1"
+
+
+# =============================================================================
+# Bootstrap
+# =============================================================================
+
+[tasks.install]
+description = "Install all CLI tools defined in mise.toml"
+shell = "nu -c"
+run = "mise install"
+
+
+# =============================================================================
+# Rust dev loop (top-level — these are universal)
+# =============================================================================
+
+[tasks.check]
+description = "cargo check against the wasm32 target"
+shell = "nu -c"
+run = "cargo check --target $env.WASM_TARGET"
+
+[tasks.build]
+description = "Build the library (debug, fast iteration)"
+shell = "nu -c"
+run = "cargo build --target $env.WASM_TARGET"
+
+[tasks."build:release"]
+description = "Build the library (release, optimized for Workers)"
+shell = "nu -c"
+run = "cargo build --target $env.WASM_TARGET --release"
+
+[tasks.test]
+description = "Run tests on native target (library is target-agnostic)"
+shell = "nu -c"
+run = "cargo test"
+
+[tasks.clippy]
+description = "Lint with clippy (deny warnings)"
+shell = "nu -c"
+run = "cargo clippy --target $env.WASM_TARGET --all-targets -- -D warnings"
+
+[tasks.fmt]
+description = "Format code with rustfmt"
+shell = "nu -c"
+run = "cargo fmt --all"
+
+[tasks.fix]
+description = "Auto-fix: rustfmt + clippy --fix"
+shell = "nu -c"
+run = """
+cargo fmt --all
+cargo clippy --target $env.WASM_TARGET --all-targets --fix --allow-dirty --allow-staged -- -D warnings
+"""
+
+[tasks.dev]
+description = "Watch loop: bacon runs check/clippy/test on change"
+shell = "nu -c"
+run = "bacon"
+
+[tasks."pre-commit"]
+description = "Quality gate: fmt + clippy + test + machete"
+depends = ["fmt", "clippy", "test", "cargo:machete"]
+shell = "nu -c"
+run = "print 'pre-commit checks passed'"
+
+
+# =============================================================================
+# cargo:* — specialized cargo helpers
+# =============================================================================
+
+[tasks."cargo:machete"]
+description = "Find unused dependencies (matters for wasm binary size)"
+shell = "nu -c"
+run = "cargo machete"
+
+[tasks."cargo:expand"]
+description = "Show macro-expanded output (debug connectrpc-build codegen)"
+shell = "nu -c"
+run = "cargo expand"
+
+[tasks."cargo:clean"]
+description = "Remove target/ and any wasm artifacts"
+shell = "nu -c"
+run = """
+rm -rf target
+print "Cleaned target/"
+"""
+
+
+# =============================================================================
+# cedar:* — Cedar policy workflow
+# =============================================================================
+
+[tasks."cedar:validate"]
+description = "Run `cedar validate` on every examples/*-policies/ tree (schema + each policy file)"
+shell = "nu -c"
+run = """
+let dirs = (glob examples/*-policies)
+if ($dirs | is-empty) {
+  print "no examples/*-policies/ dirs yet — skipping"
+  exit 0
+}
+for dir in $dirs {
+  let schemas = (glob $"($dir)/*.cedarschema")
+  if ($schemas | is-empty) {
+    print $"($dir): no .cedarschema — skipping"
+    continue
+  }
+  let schema = ($schemas | first)
+  cedar check-parse --schema $schema
+  for policy in (glob $"($dir)/policies/*.cedar") {
+    print $"validate ($policy | path basename)"
+    cedar validate --schema $schema --policies $policy
+  }
+  print $"($dir | path basename): OK"
+}
+"""
+
+[tasks."cedar:format"]
+description = "Format every examples/*-policies/policies/*.cedar file in place"
+shell = "nu -c"
+run = """
+for policy in (glob examples/*-policies/policies/*.cedar) {
+  cedar format --policies $policy --write
+}
+"""
+
+
+# =============================================================================
+# kumo:* — Kumo UI frontend helpers (for consumer examples)
+# =============================================================================
+
+[tasks."kumo:setup"]
+description = "Initialize Kumo UI (Orange theme is configured in kumo.json / Tailwind)"
+shell = "nu -c"
+run = "kumo init"
+
+[tasks."kumo:blocks"]
+description = "List available Kumo blocks"
+shell = "nu -c"
+run = "kumo blocks"
+
+[tasks."kumo:components"]
+description = "List installed Kumo components"
+shell = "nu -c"
+run = "kumo ls"
+
+
+# =============================================================================
+# src:* — .src/ workspace of upstream example repos
+# UPSTREAM env var (above) controls the owner. Flip to your fork for Phase 2.
+# =============================================================================
+
+[tasks."src:clone"]
+description = "Clone the three reference example repos into .src/"
+shell = "nu -c"
+run = """
+mkdir .src
+let repos = [
+  "connectrpc-workers",
+  "example-multitenant-worker",
+  "example-connectrpc-worker",
+]
+for name in $repos {
+  let dest = $".src/($name)"
+  if ($dest | path exists) {
+    print $"($name): already cloned, skipping"
+  } else {
+    git clone $"https://github.com/($env.UPSTREAM)/($name).git" $dest
+  }
+}
+"""
+
+[tasks."src:update"]
+description = "git pull --ff-only each repo in .src/"
+shell = "nu -c"
+run = """
+for repo in (ls .src | where type == dir | get name) {
+  print $"=== ($repo) ==="
+  git -C $repo pull --ff-only
+}
+"""
+
+[tasks."src:status"]
+description = "git status -sb across each repo in .src/"
+shell = "nu -c"
+run = """
+for repo in (ls .src | where type == dir | get name) {
+  print $"=== ($repo) ==="
+  git -C $repo status -sb
+}
+"""
+
+[tasks."src:fork"]
+description = "Fork each upstream repo under $FORK; rewrite remotes (origin=fork, upstream=$UPSTREAM); push main"
+shell = "nu -c"
+run = """
+for entry in (ls .src | where type == dir) {
+  let path = $entry.name
+  let repo = ($path | path basename)
+  let upstream_slug = $"($env.UPSTREAM)/($repo)"
+  let fork_url = $"https://github.com/($env.FORK)/($repo).git"
+
+  print $"=== ($repo) ==="
+
+  # 1. Create the fork on GitHub (idempotent — gh handles 'already forked').
+  gh repo fork $upstream_slug --clone=false
+
+  # 2. Rename existing origin → upstream (if not done already).
+  let remotes = (git -C $path remote | lines)
+  if not ("upstream" in $remotes) {
+    git -C $path remote rename origin upstream
+  }
+
+  # 3. Point origin at our fork (set-url if exists, add if not).
+  let remotes = (git -C $path remote | lines)
+  if ("origin" in $remotes) {
+    git -C $path remote set-url origin $fork_url
+  } else {
+    git -C $path remote add origin $fork_url
+  }
+
+  # 4. Seed the fork with main.
+  git -C $path push -u origin main
+
+  print "remotes:"
+  git -C $path remote -v
+}
+"""
+
+[tasks."src:reset"]
+description = "Nuke .src/ and re-clone (useful when a patch goes sideways). Re-run src:fork after."
+shell = "nu -c"
+run = """
+rm -rf .src
+mise run src:clone
+"""

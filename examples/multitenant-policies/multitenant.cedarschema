@@ -1,0 +1,144 @@
+// Cedar schema for the connyay/example-multitenant-worker authorization model.
+//
+// Mirrors the entity/role topology found in src/services/authz.rs:
+//   - BillingAccount sits at the top of every tenant.
+//   - Organization belongs to exactly one BillingAccount.
+//   - Memberships exist on BOTH levels: org-membership and billing-membership.
+//   - Owner role on either level can authorize org-level actions
+//     (require_org_or_billing_owner).
+//
+// Memberships are encoded as attribute Sets on the User entity rather than
+// separate Membership entities. This keeps policies as simple set-containment
+// checks. Roles are split into separate sets so policies don't need to filter
+// by role at evaluation time. The data layer is responsible for maintaining
+// the owner-implies-member invariant.
+
+// ---- Entities ----------------------------------------------------------
+
+entity BillingAccount;
+
+entity Organization in [BillingAccount] {
+  billing: BillingAccount,
+};
+
+entity Invitation in [Organization] {
+  org: Organization,
+  inviteeEmail: String,
+};
+
+entity SsoConfig;
+
+entity User {
+  email: String,
+  ownerOrgs:       Set<Organization>,
+  memberOrgs:      Set<Organization>,
+  ownerBillings:   Set<BillingAccount>,
+  memberBillings:  Set<BillingAccount>,
+};
+
+// ---- Action groups -----------------------------------------------------
+
+action OrgReadActions;
+action OrgWriteActions;
+action OrgOwnerActions;     // configure SSO, invite/remove/update members, delete
+
+action BillingReadActions;
+action BillingOwnerActions; // payment, subscription, sso, members, delete
+
+action InvitationActions;
+action AuthPublicActions;   // signup/login/sso — no session required
+
+// ---- Auth service (public — Cedar simply permits) -----------------------
+// Listed for completeness; the worker's CedarLayer is expected to skip
+// evaluation for actions in AuthPublicActions (no principal required).
+
+action "workers.auth.v1.AuthService.Signup",
+       "workers.auth.v1.AuthService.Login",
+       "workers.auth.v1.AuthService.SsoStart",
+       "workers.auth.v1.AuthService.SsoComplete",
+       "workers.auth.v1.AuthService.RequestPasswordReset",
+       "workers.auth.v1.AuthService.ConsumePasswordReset"
+  in [AuthPublicActions]
+  appliesTo {
+    principal: User,
+    resource: User,           // self / anonymous
+  };
+
+// ---- Org service -------------------------------------------------------
+
+action "workers.org.v1.OrgService.CreateOrganization"
+  appliesTo {
+    principal: User,
+    resource: BillingAccount,
+  };
+
+action "workers.org.v1.OrgService.GetOrganization",
+       "workers.org.v1.OrgService.ListOrganizations"
+  in [OrgReadActions]
+  appliesTo {
+    principal: User,
+    resource: Organization,
+  };
+
+action "workers.org.v1.OrgService.InviteMember",
+       "workers.org.v1.OrgService.RemoveMember",
+       "workers.org.v1.OrgService.UpdateMemberRole",
+       "workers.org.v1.OrgService.ConfigureSso",
+       "workers.org.v1.OrgService.DeleteOrganization"
+  in [OrgOwnerActions, OrgWriteActions]
+  appliesTo {
+    principal: User,
+    resource: Organization,
+  };
+
+// ---- Billing service ---------------------------------------------------
+
+action "workers.billing.v1.BillingService.GetBillingAccount",
+       "workers.billing.v1.BillingService.ListBillingAccounts",
+       "workers.billing.v1.BillingService.GetSubscription",
+       "workers.billing.v1.BillingService.ListInvoices"
+  in [BillingReadActions]
+  appliesTo {
+    principal: User,
+    resource: BillingAccount,
+  };
+
+action "workers.billing.v1.BillingService.InviteMember",
+       "workers.billing.v1.BillingService.RemoveMember",
+       "workers.billing.v1.BillingService.UpdateMemberRole",
+       "workers.billing.v1.BillingService.SetPaymentMethod",
+       "workers.billing.v1.BillingService.CancelSubscription",
+       "workers.billing.v1.BillingService.ConfigureSso",
+       "workers.billing.v1.BillingService.SetAutoJoinDomain",
+       "workers.billing.v1.BillingService.DeleteBillingAccount"
+  in [BillingOwnerActions]
+  appliesTo {
+    principal: User,
+    resource: BillingAccount,
+  };
+
+// ---- Invitation service ------------------------------------------------
+
+action "workers.invitation.v1.InvitationService.GetInvitation",
+       "workers.invitation.v1.InvitationService.AcceptInvitation",
+       "workers.invitation.v1.InvitationService.DeclineInvitation"
+  in [InvitationActions]
+  appliesTo {
+    principal: User,
+    resource: Invitation,
+  };
+
+action "workers.invitation.v1.InvitationService.ListPendingInvitations"
+  in [InvitationActions]
+  appliesTo {
+    principal: User,
+    resource: User,    // self
+  };
+
+action "workers.invitation.v1.InvitationService.ResendInvitation",
+       "workers.invitation.v1.InvitationService.RevokeInvitation"
+  in [OrgOwnerActions]
+  appliesTo {
+    principal: User,
+    resource: Invitation,
+  };

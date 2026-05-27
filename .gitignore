@@ -1,0 +1,18 @@
+# Rust
+target/
+**/*.rs.bk
+Cargo.lock
+
+# Node
+node_modules/
+dist/
+
+# Workspace of upstream example repos (managed by mise src:* tasks).
+# Patches against these live in patches/ and ARE checked in.
+.src/
+
+# Cloud Code VSCode extension bug (writes to a literal "undefined" path).
+undefined/
+
+# OS
+.DS_Store
