@@ -517,17 +517,21 @@ fnox exec -- wrangler d1 migrations apply DB --remote
 """
 
 [tasks."worker:deploy"]
-description = "Build web-kumo (no TS check — vite/esbuild handles it), set SESSION_KEY secret, deploy."
+description = "Build web-kumo (strict TS via tsc -b), set SESSION_KEY secret, deploy. Use pnpm build:nocheck inline if you want to skip the type check."
 shell = "nu -c"
 run = """
 let root = (pwd)
 cd $"($root)/($env.MULTITENANT_WEB)"
-pnpm build:nocheck
+pnpm build
 cd $"($root)/($env.MULTITENANT_WORKER)"
-print "setting SESSION_KEY wrangler secret..."
-fnox get SESSION_KEY | fnox exec -- wrangler secret put SESSION_KEY
 print "deploying worker..."
 let out = (fnox exec -- wrangler deploy)
+# Set/refresh SESSION_KEY AFTER deploy so the [vars] / [secrets] binding
+# namespace from the previous deploy is cleared first. wrangler secret put
+# treats the operation as create-or-update once no var with the same name
+# exists in the deployed binding manifest.
+print "setting SESSION_KEY wrangler secret..."
+fnox get SESSION_KEY | fnox exec -- wrangler secret put SESSION_KEY
 print $out
 let url = ($out | parse -r 'https://(?<host>[a-z0-9.-]+\\.workers\\.dev)' | get host.0?)
 if ($url | is-not-empty) {
