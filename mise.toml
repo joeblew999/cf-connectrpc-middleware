@@ -40,50 +40,50 @@ RUST_BACKTRACE = "1"
 
 
 # =============================================================================
-# Bootstrap
+# mise:* — bootstrap
 # =============================================================================
 
-[tasks.install]
+[tasks."mise:install"]
 description = "Install all CLI tools defined in mise.toml"
 shell = "nu -c"
 run = "mise install"
 
 
 # =============================================================================
-# Rust dev loop (top-level — these are universal)
+# cargo:* — Rust dev loop (all noun:verb)
 # =============================================================================
 
-[tasks.check]
+[tasks."cargo:check"]
 description = "cargo check against the wasm32 target"
 shell = "nu -c"
 run = "cargo check --target $env.WASM_TARGET"
 
-[tasks.build]
+[tasks."cargo:build"]
 description = "Build the library (debug, fast iteration)"
 shell = "nu -c"
 run = "cargo build --target $env.WASM_TARGET"
 
-[tasks."build:release"]
+[tasks."cargo:build:release"]
 description = "Build the library (release, optimized for Workers)"
 shell = "nu -c"
 run = "cargo build --target $env.WASM_TARGET --release"
 
-[tasks.test]
+[tasks."cargo:test"]
 description = "Run tests on native target (library is target-agnostic)"
 shell = "nu -c"
 run = "cargo test"
 
-[tasks.clippy]
+[tasks."cargo:lint"]
 description = "Lint with clippy (deny warnings)"
 shell = "nu -c"
 run = "cargo clippy --target $env.WASM_TARGET --all-targets -- -D warnings"
 
-[tasks.fmt]
+[tasks."cargo:format"]
 description = "Format code with rustfmt"
 shell = "nu -c"
 run = "cargo fmt --all"
 
-[tasks.fix]
+[tasks."cargo:fix"]
 description = "Auto-fix: rustfmt + clippy --fix"
 shell = "nu -c"
 run = """
@@ -91,21 +91,10 @@ cargo fmt --all
 cargo clippy --target $env.WASM_TARGET --all-targets --fix --allow-dirty --allow-staged -- -D warnings
 """
 
-[tasks.dev]
+[tasks."cargo:watch"]
 description = "Watch loop: bacon runs check/clippy/test on change"
 shell = "nu -c"
 run = "bacon"
-
-[tasks."pre-commit"]
-description = "Quality gate: fmt + clippy + test + machete"
-depends = ["fmt", "clippy", "test", "cargo:machete"]
-shell = "nu -c"
-run = "print 'pre-commit checks passed'"
-
-
-# =============================================================================
-# cargo:* — specialized cargo helpers
-# =============================================================================
 
 [tasks."cargo:machete"]
 description = "Find unused dependencies (matters for wasm binary size)"
@@ -124,6 +113,12 @@ run = """
 rm -rf target
 print "Cleaned target/"
 """
+
+[tasks."cargo:pre-commit"]
+description = "Quality gate: cargo:format + cargo:lint + cargo:test + cargo:machete"
+depends = ["cargo:format", "cargo:lint", "cargo:test", "cargo:machete"]
+shell = "nu -c"
+run = "print 'pre-commit checks passed'"
 
 
 # =============================================================================
@@ -174,12 +169,12 @@ description = "Initialize Kumo UI (Orange theme is configured in kumo.json / Tai
 shell = "nu -c"
 run = "kumo init"
 
-[tasks."kumo:blocks"]
+[tasks."kumo:list-blocks"]
 description = "List available Kumo blocks"
 shell = "nu -c"
 run = "kumo blocks"
 
-[tasks."kumo:components"]
+[tasks."kumo:list-components"]
 description = "List installed Kumo components"
 shell = "nu -c"
 run = "kumo ls"
@@ -220,7 +215,7 @@ for repo in (ls .src | where type == dir | get name) {
 }
 """
 
-[tasks."src:status"]
+[tasks."src:show-status"]
 description = "git status -sb across each repo in .src/"
 shell = "nu -c"
 run = """

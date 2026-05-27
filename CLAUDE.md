@@ -92,7 +92,7 @@ read-only reference and not touched by these tasks.
 | `mise run src:clone` | Clone the three upstream repos into `.src/` |
 | `mise run src:fork`  | Fork each upstream, rewrite remotes, push main |
 | `mise run src:update` | `git pull --ff-only` each |
-| `mise run src:status` | `git status -sb` each |
+| `mise run src:show-status` | `git status -sb` each |
 | `mise run src:reset` | Nuke `.src/` and re-clone (then re-run `src:fork`) |
 
 After `src:fork` each `.src/<repo>` has both remotes:
@@ -112,18 +112,21 @@ bash-based tasks.
 
 ### mise task layout
 
-- Top-level (universal Rust dev): `check`, `build`, `build:release`,
-  `test`, `clippy`, `fmt`, `fix`, `dev`, `pre-commit`, `install`
-- `cargo:*` — specialized cargo (`machete`, `expand`, `clean`)
+All tasks are **`noun:verb`** — no bare verbs at the top level.
+
+- `mise:install` — bootstrap everything in `[tools]`
+- `cargo:*` — every Rust workflow command (`check`, `build`, `build:release`,
+  `test`, `lint`, `format`, `fix`, `watch`, `machete`, `expand`, `clean`,
+  `pre-commit`)
 - `cedar:*` — Cedar policy workflow (`validate`, `format`)
-- `kumo:*` — frontend setup helpers
-- `src:*` — `.src/` upstream-repo workspace
+- `kumo:*` — frontend setup helpers (`setup`, `list-blocks`, `list-components`)
+- `src:*` — `.src/` upstream-repo workspace (`clone`, `fork`, `update`,
+  `show-status`, `reset`)
 
-Shared env in `[env]`: `WASM_TARGET`, `UPSTREAM`, `RUST_BACKTRACE`.
-Reference these in tasks as `$env.WASM_TARGET` etc. — do **not**
-hardcode the target or the upstream owner.
+Shared env in `[env]`: `WASM_TARGET`, `UPSTREAM`, `FORK`, `RUST_BACKTRACE`.
+Reference as `$env.WASM_TARGET` etc. in tasks — do **not** hardcode.
 
-`pre-commit` chains `fmt + clippy + test + cargo:machete` via `depends`.
+`cargo:pre-commit` chains `format + lint + test + machete` via `depends`.
 Run it before every commit.
 
 ## Proto codegen pipeline
