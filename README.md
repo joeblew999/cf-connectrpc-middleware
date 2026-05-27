@@ -3,9 +3,18 @@
 ## Live demo
 
 A Worker deployed to Cloudflare with the multitenant scaffold + editorial
-Kumo theme is running at:
+Kumo theme is running here:
 
-**https://workers-multitenant.gedw99.workers.dev**
+| Surface | URL | Use for |
+| --- | --- | --- |
+| **Login**       | https://workers-multitenant.gedw99.workers.dev/login   | Tester landing page |
+| **Preview / dev-debug** | https://workers-multitenant.gedw99.workers.dev/preview | One-click sign-in cards + theme switcher + full Kumo component showcase |
+| **Dashboard** (post-login) | https://workers-multitenant.gedw99.workers.dev/        | Authed app |
+
+**Recommended tester URL: `/preview`** — it has color-coded "Sign in"
+buttons for each of the 4 demo accounts (no copy-paste creds needed).
+After sign-out, you're bounced straight back to `/preview` so the next
+test login is one tap away.
 
 Pre-seeded test accounts (all password `demo-password-123`).
 All emails use the `.example` TLD per RFC 6761 — guaranteed never
@@ -18,13 +27,23 @@ to collide with real users, so the seed is safe in production:
 | carol@partner.example  | 5 pending invites across different orgs (volume demo)     |
 | dave@late.example      | Pending billing invite from alice                         |
 
-Sign in at `/login` as any of them — or just hit `/preview` and click
-"Sign in" on the demo accounts card (each lands you on the page that
-best showcases that user). The toggle in the top-right switches between
-the **editorial** theme (dark, red accent — what we're building) and
-the default **kumo** theme (Cloudflare orange) for A/B comparison.
+The theme switcher on `/preview` flips between the **editorial** theme
+(dark, red accent — what we're building) and the default **kumo** theme
+(Cloudflare orange) for A/B comparison.
+
+### Running locally
+
+| Surface | URL | When |
+| --- | --- | --- |
+| Vite (HMR, HTTPS, self-signed) | https://localhost:5173 | Real browser dev (`mise run dev:up`) |
+| Vite (HTTP, no cert) | http://localhost:5175 | Headless screenshot tools (`mise run kumo:web-dev-http`) |
+| Wrangler dev | https://localhost:8787 | Production-like wasm path (`mise run worker:dev`) |
 
 To redeploy or tear down, see `mise tasks | grep -E "cf:|worker:|seed:"`.
+
+To hide demo accounts on a real-project deploy: set
+`VITE_SHOW_TEST_ACCOUNTS=false` in `.env.production` — the DevAccounts
+card hides AND sign-out reverts to `/login` (instead of `/preview`).
 
 ## Intent
 
