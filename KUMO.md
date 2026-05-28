@@ -252,6 +252,34 @@ The toggle is purely a per-page A/B tool.
    intentional (variant owns styling) but the error message is
    inscrutable. At minimum, the type error should explain this.
 
+4. **Kumo `<Button>` has no `data-` attribute consumers can target**: if
+   you need theme-specific styling on Kumo Buttons (mono+caps in our
+   editorial palette, say), the only stable selector today is
+   `button.shrink-0` — which matches Kumo Buttons because Kumo applies
+   `shrink-0` to every Button, but also matches any other element with
+   that Tailwind class. A `data-kumo-button` would let consumers target
+   buttons precisely.
+
+---
+
+## §11 — Bundle size: Kumo is heavy, plan for code-splitting
+
+Out of the box, the Kumo bundle is ~830 KB minified (~250 KB gzip)
+because every component you import pulls its Base UI primitive deps.
+Vite's default 500 KB chunk warning fires on the production build.
+
+Mitigations to consider once your app grows:
+- Route-level dynamic imports (`React.lazy(() => import("./pages/X"))`).
+- `manualChunks` in `vite.config.ts` to split Kumo into its own chunk
+  (cached separately, so app updates don't invalidate it).
+- For showcase / preview-only components (DateRangePicker, Chart,
+  CommandPalette, etc.), keep them out of the main route bundle —
+  lazy-load on the Preview page.
+
+Not a Kumo bug, just a heads-up: if your app stays small, you don't
+need to act. If you start shipping pages with heavy primitives the
+user doesn't hit on every visit, code-split.
+
 ---
 
 ## Quick checklist before authoring a Kumo page
