@@ -294,11 +294,19 @@ pnpm theme:gen
 """
 
 [tasks."seed:dev"]
-description = "Seed local D1 with realistic users + org + invitations via Connect RPC. Writes .seed.json with session tokens."
+description = "Seed local D1 with the EDITORIAL scenario (alice/bob/carol/dave + Acme org). Writes .seed.editorial.json."
 shell = "nu -c"
 run = """
 cd $env.MULTITENANT_WEB
-pnpm seed:dev
+SCENARIO=editorial pnpm seed:dev
+"""
+
+[tasks."seed:dev:remysport"]
+description = "Seed local D1 with the REMYSPORT scenario (coach/captain/scout/manager + Bangkok Suns + teams). Writes .seed.remysport.json."
+shell = "nu -c"
+run = """
+cd $env.MULTITENANT_WEB
+SCENARIO=remysport pnpm seed:dev
 """
 
 [tasks."kumo:list-blocks"]
@@ -580,13 +588,23 @@ if ($url | is-not-empty) {
 """
 
 [tasks."seed:prod"]
-description = "Seed the DEPLOYED worker with alice/bob/carol/dave + Acme org + invitations. Reads target URL from fnox."
+description = "Seed the DEPLOYED worker with the EDITORIAL scenario. Reads target URL from fnox."
 shell = "nu -c"
 run = """
 let base = (fnox get CONNECTRPC_CEDAR_WORKER_URL)
-print $"seeding ($base)"
+print $"seeding ($base) with editorial scenario"
 cd $env.MULTITENANT_WEB
-BASE=$base pnpm seed:dev
+BASE=$base SCENARIO=editorial pnpm seed:dev
+"""
+
+[tasks."seed:prod:remysport"]
+description = "Seed the DEPLOYED worker with the REMYSPORT scenario. Reads target URL from fnox."
+shell = "nu -c"
+run = """
+let base = (fnox get CONNECTRPC_CEDAR_WORKER_URL)
+print $"seeding ($base) with remysport scenario"
+cd $env.MULTITENANT_WEB
+BASE=$base SCENARIO=remysport pnpm seed:dev
 """
 
 [tasks."worker:teardown"]
