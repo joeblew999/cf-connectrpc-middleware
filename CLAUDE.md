@@ -100,6 +100,11 @@ deleted — they were placeholders never touched. PRs upstream to
 
 ## Kumo frontend (`web-kumo/` sibling)
 
+> **Before any Kumo work, read [KUMO.md](./KUMO.md).** It's the
+> cross-project rulebook (run `kumo ai` first, CSS layer pitfalls,
+> theme-generator gotchas, etc.). The section below covers only the
+> things specific to this repo.
+
 The multitenant fork has **two** frontends now:
 
 - `web/` — original React app, **the visual source of truth**. Editorial
