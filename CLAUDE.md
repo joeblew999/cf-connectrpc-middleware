@@ -100,7 +100,8 @@ deleted — they were placeholders never touched. PRs upstream to
 
 ## Kumo frontend (`web-kumo/` sibling)
 
-> Read [KUMO.md](./KUMO.md) before any Kumo work — this section is repo-specific only.
+> Read [KUMO.md](./KUMO.md) before any Kumo work, and [SEED.md](./SEED.md)
+> before touching demo scenarios — this section is repo-specific only.
 
 The multitenant fork has **two** frontends now:
 
