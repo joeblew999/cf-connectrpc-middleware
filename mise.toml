@@ -563,10 +563,19 @@ if ($url | is-not-empty) {
   # Go back to repo root so fnox finds the right fnox.toml — without
   # this it auto-creates a stray fnox.toml inside the worker dir.
   cd $root
-  fnox set -p keychain CONNECTRPC_CEDAR_WORKER_URL $full
+  # Check-before-set: `fnox set` rewrites fnox.toml as a side-effect
+  # even when the entry's shape hasn't changed (only the underlying
+  # keychain value). That rewrite strips inline comments. Skip when
+  # the URL hasn't changed (the common case — same worker, same
+  # account, same URL forever after the first deploy). Mirrors the
+  # idempotent pattern in `worker:d1-create-remote`.
+  let current = (try { fnox get CONNECTRPC_CEDAR_WORKER_URL | str trim } catch { "" })
+  if $current != $full {
+    fnox set -p keychain CONNECTRPC_CEDAR_WORKER_URL $full
+    print $"updated keychain CONNECTRPC_CEDAR_WORKER_URL → ($full)"
+  }
   print ""
   print $"deployed: ($full)"
-  print $"stored in keychain as CONNECTRPC_CEDAR_WORKER_URL"
 }
 """
 
