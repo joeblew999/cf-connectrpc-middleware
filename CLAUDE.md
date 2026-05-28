@@ -124,42 +124,38 @@ The multitenant fork has **two** frontends now:
   precedent. Design them in the editorial style; if Kumo doesn't have a
   block, install one with `mise run kumo:add-block -- <Name>`.
 
-### Theme architecture
+### Theme architecture (repo-specific)
 
-The editorial theme is structurally identical to Kumo's own
-`theme-kumo.css` / `theme-fedramp.css`: it's a CSS file scoped to
-`[data-theme="editorial"]` so flipping themes is a one-attribute change.
-The `ThemeToggle` component in the topnav lets you A/B between
-`editorial` and default `kumo` at runtime (choice persists to
-`localStorage["wm.theme"]`, also accepts `?theme=…` URL param).
+Editorial = `[data-theme="editorial"]`, declared in `index.html` for
+first-paint correctness. The `ThemeToggle` is mounted **only** on
+`/preview` as a dev A/B affordance; it resets to editorial on unmount.
+No localStorage, no URL param, no persistence — see [KUMO.md §9](./KUMO.md)
+for the reasoning (race conditions with agents).
 
-To change the editorial palette, **always edit `config.editorial.mjs`
-and re-run `mise run kumo:theme-gen`** — don't hand-edit the generated
-CSS. The generator validates token names against
-`@cloudflare/kumo/scripts/theme-generator/config` and warns on typos.
+Token changes go through `scripts/theme-generator/config.editorial.mjs`
++ `mise run kumo:theme-gen`. The generator validates against Kumo's
+exported `THEME_CONFIG` and emits **unlayered** CSS — see
+[KUMO.md §3](./KUMO.md) (cascade trap) and [KUMO.md §4](./KUMO.md)
+(why we hand-roll instead of using Kumo's internal generator).
 
-Tailwind v4 only scans source files for utility class names, and Kumo's
-classes live inside `node_modules/@cloudflare/kumo/dist`. `styles.css`
-adds `@source "../node_modules/@cloudflare/kumo/dist"` so Tailwind emits
-rules for `.bg-kumo-badge-orange`, `.bg-kumo-info-tint`, etc. Without
-that line, badges and banners render colorless.
+`mise.toml::MULTITENANT_WEB` points at `web-kumo/`. All `kumo:*` tasks
+operate there.
 
-`mise.toml::MULTITENANT_WEB` points at `web-kumo/`. All `kumo:web-*`
-tasks (install, init, dev, build) operate there.
+### Dev URLs (concrete ports)
 
-### Dev URLs (three of them — pick the right one)
+See [KUMO.md §8](./KUMO.md) for the generic 3-server pattern. This
+repo's instantiation:
 
 | URL                          | Server   | When to use                                  |
 | ---------------------------- | -------- | -------------------------------------------- |
 | `https://localhost:5173/`    | Vite     | Real Chrome iteration. HMR is instant.       |
-| `http://localhost:5175/`     | Vite     | Headless screenshot tools (Claude preview, Playwright). HTTP-only — no cert dance. Started by `mise run kumo:web-dev-http` via `vite.config.http.ts`. |
-| `https://localhost:8787/`    | Wrangler | Production-like wasm path. Stale until you `mise run kumo:web-reload` (= build + restart). |
+| `http://localhost:5175/`     | Vite     | Headless screenshot tools (Claude preview, Playwright). HTTP-only. Started by `mise run kumo:web-dev-http` via `vite.config.http.ts`. |
+| `https://localhost:8787/`    | Wrangler | Production-like wasm path. Stale until `mise run kumo:web-reload`. |
 
 Pitchfork supervises both HTTPS daemons (`worker` on :8787, `web` on
 :5173); the HTTP variant on :5175 is launched on demand.
 
-Kumo's own repo is cloned at `.src/kumo/` for reference (component
-source, examples, CLI source).
+Kumo's own repo is cloned at `.src/kumo/` for reference.
 
 [rm]: examples/multitenant-policies/ROADMAP.md
 
@@ -219,68 +215,43 @@ When porting, the cheapest validation is: install Kumo, run
 -- PageHeader`, confirm it picks up the new theme via the ThemeToggle.
 If that works, the rest will too.
 
-### Using the Kumo CLI properly
+### Kumo CLI (mise wrappers)
 
-The kumo CLI has more than `add` / `ls`. The most useful command for
-agents:
+See [KUMO.md §0–§1](./KUMO.md) for the rules (`kumo ai` first, every
+session). These are the mise wrappers in this repo:
 
-- **`mise run kumo:ai`** — prints Kumo's official AI usage guide. The
-  canonical reference for every component's variants, props, and
-  compound-subcomponent API (`<Dialog.Root>`, `<Combobox.Item>`, etc.).
-  **Run this before authoring a new Kumo-component-heavy page or
-  showcase entry** — it saves the trial-and-error of guessing
-  `Dialog.Trigger render={...}` vs `<DialogTrigger asChild>` (the
-  former is correct).
-- **`mise run kumo:doc -- <Name>`** — full doc for one component.
-- **`mise run kumo:docs`** — docs for ALL 42 primitives.
-- **`mise run kumo:list-blocks`** — installable layout blocks (just 3:
-  PageHeader, ResourceListPage, DeleteResource).
-- **`mise run kumo:add-block -- <Name>`** — copy a block's source into
-  `src/components/kumo/`. Interactive prompt only on overwrite.
-- **`mise run kumo:migrate`** — token rename map when bumping Kumo.
-- **`mise run kumo:list-components`** — show what's already in
-  `src/components/kumo/`.
+| Task | What |
+| --- | --- |
+| `mise run kumo:ai` | Canonical AI usage guide. Run this FIRST every session. |
+| `mise run kumo:doc -- <Name>` | Docs for one component. |
+| `mise run kumo:docs` | Docs for all 42 primitives. |
+| `mise run kumo:list-blocks` | Installable layout blocks (PageHeader / ResourceListPage / DeleteResource). |
+| `mise run kumo:add-block -- <Name>` | Copy block source into `src/components/kumo/`. |
+| `mise run kumo:migrate` | Token rename map for version bumps. |
+| `mise run kumo:list-components` | Show what's in `src/components/kumo/`. |
 
-The Kumo CSS import order is opinionated and matters. Per `kumo:ai`:
+CSS import order in `styles.css` is opinionated — see [KUMO.md §2](./KUMO.md).
 
-```css
-@source "../node_modules/@cloudflare/kumo/dist";
-@import "@cloudflare/kumo/styles";
-@import "tailwindcss";
-```
+### CSS architecture (cascade layers)
 
-`@source` first (tells Tailwind to scan Kumo's compiled JS for class
-names), then Kumo's tokens (so they register before Tailwind processes
-utilities), then Tailwind. Putting tailwind first will silently break
-some utility-class outputs.
-
-### CSS architecture — cascade layers are the spine
-
-Three things compete for paint precedence: legacy editorial styles,
-Kumo's utility classes, and our hand-authored overrides. We use CSS
-Cascade Layers in [styles.css][styles] to make the order explicit:
+[styles.css][styles] declares this order:
 
 ```
 @layer legacy, theme, base, components, utilities, editorial;
 ```
 
-- `legacy` — `legacy-styles.css` imported under `layer(legacy)`. Lowest
-  precedence — any layered rule beats it. This is why our Kumo Button
-  variants paint correctly without `!important` or specificity hacks.
-- `theme` / `base` / `components` / `utilities` — Tailwind v4 + Kumo
-  defaults.
-- `editorial` — `theme-editorial-extras.css` + `layout-fixes.css`
-  imported under `layer(editorial)`. Last layer = highest precedence,
-  so selector overrides (sidebar reset, h1 Doto font, mobile fixes) win
-  over utilities cleanly.
+- `legacy` — `legacy-styles.css` under `layer(legacy)`. Lowest precedence.
+- `theme` / `base` / `components` / `utilities` — Tailwind v4 + Kumo.
+- `editorial` — `theme-editorial-extras.css` + `layout-fixes.css` under
+  `layer(editorial)`. Highest precedence among layered rules.
 
-**Without the layer wrap, legacy is unlayered → trumps everything →
-forces every override into a specificity war.** That's the trap I fell
-into for hours before the user pointed it out. Don't repeat it.
-
-The one place `!important` remains is the ThemeToggle hide on mobile.
-That's a fight with inline `style={{ display: "inline-flex" }}` —
-inline styles beat all layers, period. Documented in the file.
+**The trap that bit us twice**: Kumo emits *unlayered* `:root, :host`
+defaults for `--color-kumo-*` tokens. Per the cascade-layers spec,
+unlayered rules beat ANY layered rule regardless of specificity. So
+custom theme overrides MUST also be unlayered — see [KUMO.md §3](./KUMO.md).
+The theme generator handles this for token overrides; if you author
+selector overrides by hand in the `editorial` layer, A/B-test under
+each theme via the `/preview` ThemeToggle.
 
 ### Porting mobile fixes
 
