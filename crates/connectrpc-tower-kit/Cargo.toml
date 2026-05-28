@@ -1,0 +1,43 @@
+[package]
+name        = "connectrpc-tower-kit"
+description = "Shared primitives for Connect-RPC tower middleware on Cloudflare Workers — Rollout trait, denial-response builder, Future enum helper"
+version.workspace      = true
+edition.workspace      = true
+rust-version.workspace = true
+authors.workspace      = true
+license.workspace      = true
+repository.workspace   = true
+
+[lib]
+# rlib only — this is a foundation library, not a Worker target.
+# Downstream crates that produce a cdylib (connectrpc-cedar etc.) pull
+# this in as a normal Rust dependency. Keeping it rlib-only avoids the
+# extra wasm artifact and the cdylib feature unification surprises.
+crate-type = ["rlib"]
+
+[dependencies]
+# Connect-RPC body type (ConnectRpcBody) + ConnectError for denial responses.
+# default-features = false keeps the wasm32 build path clean — no server/TLS.
+connectrpc.workspace = true
+
+# Standard tower traits. default-features = false because we just want the
+# Layer + Service traits, no executor / utility helpers (downstream crates
+# add `tower = { features = ["util"] }` if they need ServiceExt).
+tower.workspace = true
+
+# http types — Request, Response, HeaderName. Shared with every Connect-RPC
+# middleware via tower::Service<http::Request<B>>.
+http.workspace          = true
+http-body.workspace     = true
+http-body-util.workspace = true
+bytes.workspace         = true
+
+# pin_project_lite for the canonical short-circuit Future enum. Header-only.
+pin-project-lite.workspace = true
+
+# tracing for the Rollout trait's log_shadow helper. The kit only emits
+# events; downstream picks the subscriber.
+tracing.workspace = true
+
+[features]
+default = []

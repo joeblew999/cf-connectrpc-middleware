@@ -1,0 +1,44 @@
+[package]
+name        = "connectrpc-cedar"
+description = "Cedar policy authorization middleware (tower::Layer) for connectrpc on Cloudflare Workers"
+version.workspace      = true
+edition.workspace      = true
+rust-version.workspace = true
+authors.workspace      = true
+license.workspace      = true
+repository.workspace   = true
+
+[lib]
+# cdylib so a downstream Worker that depends on us can still build a
+# single wasm artifact; rlib so we're usable as a normal Rust crate
+# (tests, downstream binaries).
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# Shared primitives — Rollout trait, denial-response builder, the Future
+# enum helper, canonical extension-type docs. See MIDDLEWARES.md §6.
+connectrpc-tower-kit = { path = "../connectrpc-tower-kit", version = "0.1.0" }
+
+connectrpc.workspace       = true
+cedar-policy.workspace     = true
+tower.workspace            = true
+http.workspace             = true
+http-body.workspace        = true
+http-body-util.workspace   = true
+bytes.workspace            = true
+tracing.workspace          = true
+pin-project-lite.workspace = true
+
+[dev-dependencies]
+# In tests we want a runtime to drive futures + assertion helpers. Workers
+# don't use tokio in prod (they use their own JS-task runtime), but for
+# unit tests on native it's the path of least friction.
+tokio = { version = "1", features = ["macros", "rt"] }
+
+[features]
+default = []
+# Opt-in helper that knows how to extract from the connectrpc-workers
+# example-multitenant-worker's SessionContext shape. Downstream consumers
+# with their own session structs build their own extractor; this feature
+# saves the boilerplate for projects that share the example's shape.
+multitenant-extractor = []

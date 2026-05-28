@@ -21,29 +21,43 @@
 //! `cedar-policy/authorization-for-expressjs`'s `skippedEndpoints`.
 
 use std::convert::Infallible;
-use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context as TaskContext, Poll};
 
-use bytes::Bytes;
 use cedar_policy::Decision;
 use connectrpc::{ConnectError, ConnectRpcBody};
-use http::{HeaderName, Response, StatusCode};
-use http_body_util::Full;
-use pin_project_lite::pin_project;
+use http::Response;
 use tower::{Layer, Service};
 use tracing::{info, warn};
+
+use connectrpc_tower_kit::{Rollout, ShortCircuitFuture, deny_response};
 
 use crate::authorizer::CedarAuthorizer;
 use crate::extract::CedarRequestExtractor;
 
-/// Run mode for the layer. See module-level docs.
+/// Run mode for the Cedar layer.
+///
+/// Implements [`Rollout`] from the kit, so shadow-mode log lines come
+/// out with the same `target = "connectrpc_middleware"` shape as every
+/// other middleware in the family. See module-level docs.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Mode {
     /// Evaluate + log, never reject. Use during shadow rollout.
     Shadow,
     /// Evaluate + reject on Deny.
     Enforce,
+}
+
+impl Rollout for Mode {
+    fn is_enforcing(&self) -> bool {
+        matches!(self, Mode::Enforce)
+    }
+    fn name(&self) -> &'static str {
+        match self {
+            Mode::Shadow => "shadow",
+            Mode::Enforce => "enforce",
+        }
+    }
 }
 
 /// The Cedar middleware layer. Construct via [`CedarLayer::shadow`] or
@@ -143,7 +157,7 @@ where
 {
     type Response = Response<ConnectRpcBody>;
     type Error = Infallible;
-    type Future = CedarFuture<S::Future>;
+    type Future = ShortCircuitFuture<S::Future>;
 
     fn poll_ready(&mut self, cx: &mut TaskContext<'_>) -> Poll<Result<(), Self::Error>> {
         self.inner.poll_ready(cx)
@@ -153,11 +167,11 @@ where
         let path = req.uri().path();
 
         if self.skip_paths.iter().any(|p| p == path) {
-            return CedarFuture::pass(self.inner.call(req));
+            return ShortCircuitFuture::pass(self.inner.call(req));
         }
 
         let Some(cedar_req) = self.extractor.extract(&req) else {
-            return CedarFuture::pass(self.inner.call(req));
+            return ShortCircuitFuture::pass(self.inner.call(req));
         };
 
         let (decision, reasons) = self.authorizer.is_authorized(
@@ -212,7 +226,7 @@ where
 
         match (self.mode, decision) {
             (Mode::Shadow, _) | (Mode::Enforce, Decision::Allow) => {
-                CedarFuture::pass(self.inner.call(req))
+                ShortCircuitFuture::pass(self.inner.call(req))
             }
             (Mode::Enforce, Decision::Deny) => {
                 let msg = if reasons.is_empty() {
@@ -220,80 +234,8 @@ where
                 } else {
                     format!("cedar denied: [{}]", reasons.join(", "))
                 };
-                CedarFuture::denied(deny_response(msg))
+                ShortCircuitFuture::denied(deny_response(ConnectError::permission_denied(msg)))
             }
-        }
-    }
-}
-
-/// Build a Connect-protocol error response body for a Cedar denial.
-/// The Connect spec encodes errors as a 2xx-like HTTP response with a
-/// JSON body `{"code": "permission_denied", "message": "..."}`.
-/// ConnectError handles the encoding via its public helpers.
-fn deny_response(msg: String) -> Response<ConnectRpcBody> {
-    let err = ConnectError::permission_denied(msg);
-    let body_bytes = err.to_json();
-    let status = err.http_status();
-
-    let mut builder = Response::builder()
-        .status(status)
-        .header(http::header::CONTENT_TYPE, "application/json");
-
-    // Surface ConnectError-attached response headers (rare but allowed).
-    for (k, v) in err.response_headers() {
-        builder = builder.header(k, v);
-    }
-
-    // Connect protocol trailers travel as `trailer-<name>` headers.
-    for (k, v) in err.trailers() {
-        let prefixed = format!("trailer-{}", k.as_str());
-        if let Ok(name) = HeaderName::try_from(prefixed) {
-            builder = builder.header(name, v);
-        }
-    }
-
-    builder
-        .body(ConnectRpcBody::Full(Full::new(body_bytes)))
-        .unwrap_or_else(|_| {
-            Response::builder()
-                .status(StatusCode::INTERNAL_SERVER_ERROR)
-                .body(ConnectRpcBody::Full(Full::new(Bytes::new())))
-                .expect("static infallible builder")
-        })
-}
-
-pin_project! {
-    /// Future returned by [`CedarService::call`]. Either passes through
-    /// to the inner service or short-circuits with a denial response.
-    #[project = CedarFutureProj]
-    pub enum CedarFuture<F> {
-        Pass { #[pin] inner: F },
-        Denied { response: Option<Response<ConnectRpcBody>> },
-    }
-}
-
-impl<F> CedarFuture<F> {
-    fn pass(inner: F) -> Self {
-        Self::Pass { inner }
-    }
-    fn denied(response: Response<ConnectRpcBody>) -> Self {
-        Self::Denied {
-            response: Some(response),
-        }
-    }
-}
-
-impl<F> std::future::Future for CedarFuture<F>
-where
-    F: std::future::Future<Output = Result<Response<ConnectRpcBody>, Infallible>>,
-{
-    type Output = Result<Response<ConnectRpcBody>, Infallible>;
-    fn poll(self: Pin<&mut Self>, cx: &mut TaskContext<'_>) -> Poll<Self::Output> {
-        match self.project() {
-            CedarFutureProj::Pass { inner } => inner.poll(cx),
-            CedarFutureProj::Denied { response } => Poll::Ready(Ok(response
-                .take()
-                .expect("CedarFuture::Denied polled after completion"))),
         }
     }
 }

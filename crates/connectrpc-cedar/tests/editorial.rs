@@ -12,10 +12,10 @@
 use cedar_policy::{Context, Decision, EntityUid, RestrictedExpression};
 use connectrpc_cedar::{CedarAuthorizer, action::action_from_path};
 
-const SCHEMA: &str = include_str!("../examples/multitenant-policies/multitenant.cedarschema");
-const BILLING_POLICIES: &str = include_str!("../examples/multitenant-policies/policies/billing.cedar");
-const INVITATION_POLICIES: &str = include_str!("../examples/multitenant-policies/policies/invitation.cedar");
-const ORG_POLICIES: &str = include_str!("../examples/multitenant-policies/policies/org.cedar");
+const SCHEMA: &str = include_str!("../../../examples/multitenant-policies/multitenant.cedarschema");
+const BILLING_POLICIES: &str = include_str!("../../../examples/multitenant-policies/policies/billing.cedar");
+const INVITATION_POLICIES: &str = include_str!("../../../examples/multitenant-policies/policies/invitation.cedar");
+const ORG_POLICIES: &str = include_str!("../../../examples/multitenant-policies/policies/org.cedar");
 
 fn authorizer() -> CedarAuthorizer {
     let combined = format!("{BILLING_POLICIES}\n\n{INVITATION_POLICIES}\n\n{ORG_POLICIES}");

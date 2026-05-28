@@ -2,19 +2,30 @@
 
 README has the intent.
 
-## What this crate is
+## What this repo is
 
-A **library crate** (`cdylib + rlib`) exposing a `tower::Layer` that adds
-Cedar policy authorization to ConnectRPC handlers. Designed to drop into
-existing `connectrpc-workers`-based Cloudflare Workers with 2 lines of
-glue code. **Not a Worker itself.**
+**Today**: a single library crate (`cdylib + rlib`) exposing a
+`tower::Layer` that adds Cedar policy authorization to ConnectRPC
+handlers. Drops into existing `connectrpc-workers`-based Cloudflare
+Workers with ~2 lines of glue.
 
-Reference workers it must compose with (cloned alongside this repo at
-`/Users/apple/workspace/go/src/github.com/connyay/`):
+**Where it's going**: a Cargo workspace containing a **family of Cedar
+crates** (Layer + Interceptor + macros) sharing a `connectrpc-cedar-core`,
+on top of a generic `connectrpc-tower-kit`. Plus a set of CF-ops
+middleware crates (tracing, metrics, rate-limit, idempotency, trace-context,
+access). The plan is in [`MIDDLEWARES.md`](./MIDDLEWARES.md) — read that
+before designing any new abstraction. The §6 "what the catalog tells us"
+list of six recurring patterns is binding.
+
+**Not a Worker itself** — this stays a library.
+
+Reference workers it must compose with (cloned at
+`/Users/apple/workspace/go/src/github.com/connyay/` + in `.src/`):
 
 - `connectrpc-workers` — server-side ConnectRPC for Workers
 - `example-multitenant-worker` — closest target shape; has React/Kumo frontend
 - `example-connectrpc-worker` — minimal scaffold
+- `EdgeReplica` — connyay's other CF Worker; uses the same middleware module convention
 
 ## Version pins (must match `example-multitenant-worker/Cargo.toml`)
 
@@ -33,40 +44,67 @@ Reference workers it must compose with (cloned alongside this repo at
 
 Build target: **`wasm32-unknown-unknown`** (not `wasm32-wasip1`).
 
-## API shape (mirrors `AuthLayer` in the multitenant repo)
+## API shape — today (single crate, will split)
 
 ```
-CedarLayer::new(authorizer)        // Clone, Arc<CedarAuthorizer> inside
-CedarService<S>                    // Service<http::Request<B>>
+CedarLayer::shadow(authorizer, extractor)    // log-only
+CedarLayer::enforce(authorizer, extractor)   // reject on Deny
+CedarLayer::skip_paths([...])                // public endpoints (health checks, OAuth callbacks)
+CedarService<S, E>                           // Service<http::Request<B>>
 ```
 
 On `call()`:
-1. Read `SessionContext` (or principal type) from `req.extensions()` —
-   populated by an upstream `AuthLayer`.
-2. Map URL path `/pkg.Service/Method` → Cedar `Action::"pkg.Service.Method"`.
-3. Call `cedar_policy::Authorizer::is_authorized`.
-4. On `Decision::Deny`, short-circuit with `ConnectError::permission_denied`.
+1. Bail if path matches `skip_paths`.
+2. Extractor reads `SessionContext` from `req.extensions()` → `CedarRequest`.
+3. `CedarAuthorizer::is_authorized(...)`.
+4. `Mode::Shadow` → log + pass through. `Mode::Enforce` + `Decision::Deny` → short-circuit with a Connect-protocol error response (`ConnectError::permission_denied(...).to_json()` body, `Error = Infallible`).
 
-Companion helper for fine-grained, body-aware checks inside handlers
-(parallels `require_session`):
+## Family plan (what supersedes the single-crate API above)
 
-```rust
-require_authorized(ctx: &connectrpc::RequestContext, action, resource)
-    -> Result<(), ConnectError>
+The plan in [`MIDDLEWARES.md`](./MIDDLEWARES.md):
+
+```
+connectrpc-tower-kit          shared primitives — no middleware
+       │
+       ├─ connectrpc-cedar-core            CedarAuthorizer + Request type
+       │       │
+       │       ├─ connectrpc-cedar-layer         (this src/ today)
+       │       ├─ connectrpc-cedar-interceptor   header-only + typed-body, two traits
+       │       └─ connectrpc-cedar-macros        #[require_authorized(action=..., resource=...)]
 ```
 
-## Module layout
+Handler-side helpers stay alongside the middleware family — defense in
+depth + body-field-specific checks the Layer can't see. We are
+**not** deleting handler-side `require_*` after shadow mode; that
+earlier note in `example-multitenant-worker/src/middleware/cedar.rs`
+was wrong.
+
+## Module layout (transitional)
+
+Today (pre-workspace):
 
 ```
 src/lib.rs          public re-exports
-src/layer.rs        CedarLayer + CedarService
+src/layer.rs        CedarLayer + CedarService (short-circuiting)
 src/authorizer.rs   wraps cedar_policy::Authorizer + PolicySet + Entities
 src/action.rs       path → Action mapping
+src/extract.rs      CedarRequest + CedarRequestExtractor trait
 examples/           working integration with a stub connectrpc service
+tests/editorial.rs  end-to-end against examples/multitenant-policies/
+```
+
+After workspace conversion (planned next):
+
+```
+crates/connectrpc-tower-kit/             new — Rollout trait, Chain<I>, denial-response builder
+crates/connectrpc-cedar-core/            new — CedarAuthorizer + types (no Layer)
+crates/connectrpc-cedar-layer/           current src/ split out
+crates/connectrpc-cedar-interceptor/     future — body-aware
+crates/connectrpc-cedar-macros/          future — proc-macro
 ```
 
 Frontend / Kumo UI lives in the *consumer* example workers, not in this
-crate.
+repo.
 
 ## .src/ workspace (mise-managed clones of the example repos)
 
