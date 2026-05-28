@@ -53,6 +53,12 @@ MULTITENANT_WORKER = ".src/example-multitenant-worker"
 # Better Rust diagnostics during dev.
 RUST_BACKTRACE = "1"
 
+# Multi-statement SQL that empties the D1 in reverse-FK order. Used by
+# every seed:* task BEFORE seeding so each scenario lands in a clean
+# DB — no leftover users from a previous scenario. The 12 tables come
+# from .src/example-multitenant-worker/migrations/0001_init.sql.
+WIPE_SQL = "DELETE FROM consumed_nonces; DELETE FROM sso_states; DELETE FROM sso_configs; DELETE FROM invoices; DELETE FROM subscriptions; DELETE FROM invitations; DELETE FROM org_memberships; DELETE FROM billing_memberships; DELETE FROM organizations; DELETE FROM billing_accounts; DELETE FROM identities; DELETE FROM users;"
+
 
 # =============================================================================
 # mise:* — bootstrap
@@ -294,18 +300,26 @@ pnpm theme:gen
 """
 
 [tasks."seed:dev"]
-description = "Seed local D1 with the EDITORIAL scenario (alice/bob/carol/dave + Acme org). Writes .seed.editorial.json."
+description = "ATOMIC — wipe local D1, then seed the EDITORIAL scenario. After this runs the local DB has alice/bob/carol/dave + Acme orgs and NOTHING ELSE."
 shell = "nu -c"
 run = """
-cd $env.MULTITENANT_WEB
+let root = (pwd)
+cd $"($root)/($env.MULTITENANT_WORKER)"
+print "wiping local D1..."
+fnox exec -- wrangler d1 execute DB --local --command $env.WIPE_SQL
+cd $"($root)/($env.MULTITENANT_WEB)"
 SCENARIO=editorial pnpm seed:dev
 """
 
 [tasks."seed:dev:remysport"]
-description = "Seed local D1 with the REMYSPORT scenario (coach/captain/scout/manager + Bangkok Suns + teams). Writes .seed.remysport.json."
+description = "ATOMIC — wipe local D1, then seed the REMYSPORT scenario. After this runs the local DB has coach/captain/scout/manager + Bangkok Suns teams and NOTHING ELSE."
 shell = "nu -c"
 run = """
-cd $env.MULTITENANT_WEB
+let root = (pwd)
+cd $"($root)/($env.MULTITENANT_WORKER)"
+print "wiping local D1..."
+fnox exec -- wrangler d1 execute DB --local --command $env.WIPE_SQL
+cd $"($root)/($env.MULTITENANT_WEB)"
 SCENARIO=remysport pnpm seed:dev
 """
 
@@ -549,7 +563,7 @@ fnox exec -- wrangler d1 migrations apply DB --remote
 """
 
 [tasks."worker:deploy"]
-description = "Build web-kumo + deploy with the EDITORIAL scenario (default). For other scenarios use worker:deploy:<scenario>."
+description = "ATOMIC — build (VITE_SEED_SCENARIO=editorial) + deploy + wipe remote D1 + seed editorial. After this runs the prod deploy is serving editorial and the prod DB has ONLY editorial users."
 shell = "nu -c"
 run = """
 let root = (pwd)
@@ -573,23 +587,23 @@ if ($url | is-not-empty) {
   # this it auto-creates a stray fnox.toml inside the worker dir.
   cd $root
   # Check-before-set: `fnox set` rewrites fnox.toml as a side-effect
-  # even when the entry's shape hasn't changed (only the underlying
-  # keychain value). That rewrite strips inline comments. Skip when
-  # the URL hasn't changed (the common case — same worker, same
-  # account, same URL forever after the first deploy). Mirrors the
-  # idempotent pattern in `worker:d1-create-remote`.
+  # even when the entry's shape hasn't changed. Skip when URL unchanged.
   let current = (try { fnox get CONNECTRPC_CEDAR_WORKER_URL | str trim } catch { "" })
   if $current != $full {
     fnox set -p keychain CONNECTRPC_CEDAR_WORKER_URL $full
     print $"updated keychain CONNECTRPC_CEDAR_WORKER_URL → ($full)"
   }
-  print ""
-  print $"deployed: ($full)"
+  print $"deployed: ($full)  [scenario=editorial]"
 }
+# Atomic: wipe + seed editorial. Calls seed:prod which does both.
+cd $root
+print ""
+print "── resetting prod DB to editorial-only ──"
+mise run seed:prod
 """
 
 [tasks."worker:deploy:remysport"]
-description = "Build web-kumo (with VITE_SEED_SCENARIO=remysport) + deploy. Same Worker name — overwrites the previous deploy. Pair with seed:prod:remysport so the deployed DB has the matching users."
+description = "ATOMIC — build (VITE_SEED_SCENARIO=remysport) + deploy + wipe remote D1 + seed remysport. After this runs the prod deploy is serving remysport and the prod DB has ONLY remysport users. Same Worker name as editorial — overwrites."
 shell = "nu -c"
 run = """
 let root = (pwd)
@@ -611,28 +625,40 @@ if ($url | is-not-empty) {
     fnox set -p keychain CONNECTRPC_CEDAR_WORKER_URL $full
     print $"updated keychain CONNECTRPC_CEDAR_WORKER_URL → ($full)"
   }
-  print ""
   print $"deployed: ($full)  [scenario=remysport]"
 }
+# Atomic: wipe + seed remysport.
+cd $root
+print ""
+print "── resetting prod DB to remysport-only ──"
+mise run seed:prod:remysport
 """
 
 [tasks."seed:prod"]
-description = "Seed the DEPLOYED worker with the EDITORIAL scenario. Reads target URL from fnox."
+description = "ATOMIC — wipe remote D1, then seed the EDITORIAL scenario. After this runs the prod DB has alice/bob/carol/dave + Acme orgs and NOTHING ELSE."
 shell = "nu -c"
 run = """
+let root = (pwd)
 let base = (fnox get CONNECTRPC_CEDAR_WORKER_URL)
+cd $"($root)/($env.MULTITENANT_WORKER)"
+print $"wiping remote D1 at ($base)..."
+fnox exec -- wrangler d1 execute DB --remote --command $env.WIPE_SQL
+cd $"($root)/($env.MULTITENANT_WEB)"
 print $"seeding ($base) with editorial scenario"
-cd $env.MULTITENANT_WEB
 BASE=$base SCENARIO=editorial pnpm seed:dev
 """
 
 [tasks."seed:prod:remysport"]
-description = "Seed the DEPLOYED worker with the REMYSPORT scenario. Reads target URL from fnox."
+description = "ATOMIC — wipe remote D1, then seed the REMYSPORT scenario. After this runs the prod DB has coach/captain/scout/manager + Bangkok Suns teams and NOTHING ELSE."
 shell = "nu -c"
 run = """
+let root = (pwd)
 let base = (fnox get CONNECTRPC_CEDAR_WORKER_URL)
+cd $"($root)/($env.MULTITENANT_WORKER)"
+print $"wiping remote D1 at ($base)..."
+fnox exec -- wrangler d1 execute DB --remote --command $env.WIPE_SQL
+cd $"($root)/($env.MULTITENANT_WEB)"
 print $"seeding ($base) with remysport scenario"
-cd $env.MULTITENANT_WEB
 BASE=$base SCENARIO=remysport pnpm seed:dev
 """
 

@@ -161,31 +161,35 @@ ever risking a real-user collision.
 
 ---
 
-## §4 — Scenarios share one database, not isolated tenants
+## §4 — Atomic seeding: one scenario at a time, no leftovers
 
-**Important caveat to flag, especially when you have multiple
-scenarios:**
+Every seed task wipes the target D1 BEFORE seeding. So after
+`mise run seed:dev:remysport`, the local DB holds ONLY remysport
+users; any earlier editorial seed is gone. Same for prod via
+`seed:prod[:X]` and `worker:deploy[:X]`.
 
-There is ONE D1 database (or whatever your backing store is). Running
-`mise run seed:dev` and then `mise run seed:dev:remysport` produces a
-database holding BOTH scenarios' users + orgs + invites. The frontend's
-`VITE_SEED_SCENARIO` only controls which sign-in cards appear in
-DevAccounts — not what data exists in the database.
+The wipe SQL lives in `mise.toml`'s `[env]` block as `WIPE_SQL` —
+a single multi-statement DELETE in reverse-FK order covering all 12
+tables (`consumed_nonces` through `users`). Update it whenever
+migrations add a new table that the seed creates rows in.
 
-In practice this is usually fine — every email is `.example`, every
-org has a distinct name, so they don't collide. But it does mean:
+This atomic guarantee means:
 
-- Running both seeds doesn't "switch" demos. It additively populates
-  the same DB.
-- The `Members` / `Invitations` etc. pages will show data from whatever
-  scope the logged-in user is in — coach@bangkok-suns sees their
-  basketball teams, alice@acme sees Acme orgs. No bleed.
-- If you want a TRUE clean-slate per scenario, you need to nuke the DB
-  between scenarios (`mise run worker:teardown`, then reseed).
+- **Switching scenarios = one command.** `mise run seed:dev:remysport`
+  reliably leaves the DB in remysport-only state. No "do I need to
+  teardown first?" question.
+- **`worker:deploy[:X]` is fully atomic.** Build → deploy → wipe →
+  seed X. After it succeeds, frontend bundle + DB are coherent: only
+  scenario X's users exist, and DevAccounts only shows X's cards.
+- **The pairing contract from §7 still applies** but is enforced by
+  construction — `worker:deploy:X` calls `seed:prod:X` at the end,
+  which wipes + seeds. You literally can't deploy X without seeding X.
 
-For a "demo deploy" production pattern — separate Workers (each with
-their own D1) per scenario — set `VITE_SEED_SCENARIO=remysport` at
-both deploy + seed time, and use a distinct worker name + D1.
+**One D1, one scenario at a time. Switching is atomic, not additive.**
+
+If you ever need TRUE parallel demos (editorial.example.com and
+remysport.example.com both live), graduate to per-scenario Workers
+(separate worker name, separate D1) — see §10.
 
 ---
 
@@ -298,21 +302,24 @@ Not in scope by default.
 
 ---
 
-## §10 — When to graduate to "scenario per database"
+## §10 — When to graduate to "parallel scenario deploys"
 
-Today: one D1, all scenarios coexist. Fine for demos.
+Today: one Worker, one D1, atomic switching via wipe+seed. Only one
+scenario is live at a time. Fine for demos that get shown one at a time.
 
 Graduate when:
+- You want editorial.example.com and remysport.example.com BOTH live
+  simultaneously, each with its own data.
 - Cedar policies start enforcing tenant boundaries and you want to
   prove they hold across distinct production-shape databases.
 - A scenario needs different schema (e.g. RemySports adds a "game"
   table that editorial doesn't have).
-- Demo deploys go to real prospects and you want truly isolated data.
 
 Path: separate Wrangler deployment per scenario (different
 `workers-<name>` name, different `D1_DATABASE_ID` in the keychain),
 each seeded independently. The `VITE_SEED_SCENARIO` build env still
-drives the bundle.
+drives the bundle. Mise tasks then look like `worker:deploy:editorial`
+deploying to `workers-multitenant-editorial` etc.
 
 ---
 
