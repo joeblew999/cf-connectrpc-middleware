@@ -235,18 +235,31 @@ SCENARIO=remysport mise run seed:dev
   Backend: creates coach@bangkok-suns + 5 teams + scout invites
 ```
 
-`VITE_SEED_SCENARIO` (build-time) and `SCENARIO` (run-time, for seed)
-should match. By convention the mise tasks pair them:
+`VITE_SEED_SCENARIO` (build-time, for the frontend bundle) and
+`SCENARIO` (run-time, for the seed) should match. By convention the
+mise tasks pair them — for any scenario `<name>` you should have THREE
+tasks: a local seed, a prod seed, and a prod deploy:
 
-| mise task | `SCENARIO=` | What |
+| mise task | What | Pair with |
 | --- | --- | --- |
-| `seed:dev` | editorial | Seeds editorial scenario against local :8787 |
-| `seed:dev:remysport` | remysport | Seeds remysport scenario against local :8787 |
-| `seed:prod` | editorial | Seeds editorial against the deployed URL |
-| `seed:prod:remysport` | remysport | Seeds remysport against the deployed URL |
+| `seed:dev` | Editorial scenario → local :8787 | `pnpm dev` |
+| `seed:dev:remysport` | RemySports scenario → local :8787 | `VITE_SEED_SCENARIO=remysport pnpm dev` |
+| `worker:deploy` | Build (editorial) + deploy | `seed:prod` |
+| `worker:deploy:remysport` | Build (remysport) + deploy | `seed:prod:remysport` |
+| `seed:prod` | Editorial scenario → deployed URL | `worker:deploy` |
+| `seed:prod:remysport` | RemySports scenario → deployed URL | `worker:deploy:remysport` |
 
-When you `pnpm dev` (without setting the env), Vite defaults to
+When you `pnpm dev` without setting the env, Vite defaults to
 `editorial` via `vite.config.ts`. Same for the seed runner.
+
+**Important coupling:** `worker:deploy*` and `seed:prod*` MUST use the
+matching scenario or the demo breaks (frontend would show
+coach@bangkok-suns but DB would only have alice@acme). Always run them
+as a pair:
+
+```
+mise run worker:deploy:remysport && mise run seed:prod:remysport
+```
 
 ---
 
