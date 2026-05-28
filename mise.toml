@@ -180,6 +180,24 @@ for policy in (glob examples/*-policies/policies/*.cedar) {
 }
 """
 
+[tasks."cedar:test"]
+description = "Run cedar authorize against representative requests for every examples/*-policies/tests/run.nu found. Non-zero exit on any mismatch."
+shell = "nu -c"
+run = """
+let runners = (glob examples/*-policies/tests/run.nu)
+if ($runners | is-empty) {
+  print "no examples/*-policies/tests/run.nu — skipping"
+  exit 0
+}
+for runner in $runners {
+  let dir = ($runner | path dirname | path dirname)
+  print $"── ($dir | path basename) ──"
+  cd $dir
+  nu tests/run.nu
+  cd -
+}
+"""
+
 
 # =============================================================================
 # kumo:* — Kumo UI frontend helpers (for consumer examples)

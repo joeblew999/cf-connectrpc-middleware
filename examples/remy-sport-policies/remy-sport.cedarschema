@@ -1,0 +1,216 @@
+// Cedar schema for the RemySports / ChampsCircuit ReBAC matrix.
+//
+// Source of truth for the rules: joeblew999/remy-sport-biz/access/matrix.md
+// (186 permission rows, ~60 actions, 18 relations, 4 object types).
+//
+// Architectural choice: relations are passed via `context` rather than
+// baked into the entity graph. The connectrpc-cedar middleware queries
+// D1 for the requester's relations to the target resource, packs them
+// into the context object as String sets, and Cedar evaluates against
+// those sets. This composes with the existing SessionContext pattern
+// (auth.session.SessionContext is pub) — no need to load the entire
+// relations table into Cedar's entity store per request.
+//
+// Schema-honest scope: we model the four resource categories (Event,
+// Team, Player, Platform), the role-based relations from users.role_code,
+// and the relation Strings the matrix uses. We DON'T model event subtype
+// qualifiers (T/L/K/Sh) as Cedar entity types — they pass through as
+// `context.event_type`.
+
+// ---- Entities ----------------------------------------------------------
+
+// Singleton object for platform-level actions (sign-in, browse, etc.).
+// All platform-level policies target `resource is Platform`.
+entity Platform;
+
+// User: identity + global role from users.role_code.
+// Role-based relations (PLATFORM_ADMIN, ANY_ORGANIZER, ANY_COACH,
+// ANY_PLAYER, ANY_REFEREE, ANY_SPECTATOR, ANY_SIGNED_IN) all derive
+// from this attribute — no separate role-tuples needed.
+entity User {
+  email: String,
+  role: String,   // "ADMIN" | "ORGANIZER" | "COACH" | "PLAYER" | "REFEREE" | "SPECTATOR"
+};
+
+// Team: a basketball team within a school/club.
+// Object-instance relations (HEAD_COACH, ASSISTANT_COACH, TEAM_MANAGER,
+// TEAM_PLAYER, FOLLOWER_TEAM) are passed via `context.team_relations`
+// at request time (sourced from team_coaches + player_teams + subscriptions
+// in our DB).
+entity Team;
+
+// Event: a tournament, league, camp, or showcase.
+// Per the matrix the subtype matters for several rules; passed as
+// `context.event_type` not modelled as a separate entity.
+entity Event;
+
+// Player: a player profile (may or may not have an associated user).
+// Object-instance relations (SELF, GUARDIAN, FOLLOWER_PLAYER) are
+// passed via `context.player_relations`.
+entity Player;
+
+// ---- Shared context type -----------------------------------------------
+
+// What the connectrpc-cedar middleware packs into the request context.
+//
+// `role` is always present (from SessionContext.role).
+// The `*_relations` sets are present only when the action targets that
+// resource type; the middleware fetches them from D1 per request based
+// on (principal, resource).
+// `event_type` is present for Event actions where the subtype matters.
+type RequestContext = {
+  role: String,                       // PUBLIC | ANY_SIGNED_IN | PLATFORM_ADMIN | ANY_ORGANIZER | etc.
+  team_relations?: Set<String>,       // {HEAD_COACH, ASSISTANT_COACH, TEAM_MANAGER, TEAM_PLAYER, FOLLOWER_TEAM}
+  event_relations?: Set<String>,      // {OWNER, CO_ORGANIZER, FOLLOWER_EVENT}
+  player_relations?: Set<String>,     // {SELF, GUARDIAN, FOLLOWER_PLAYER}
+  event_type?: String,                // "T" | "L" | "K" | "Sh"
+};
+
+// ---- Action groups -----------------------------------------------------
+
+action PublicPlatformActions;
+action SignedInPlatformActions;
+action AdminPlatformActions;
+action OrganizerCreateActions;
+action CoachCreateActions;
+
+action EventViewActions;
+action EventOwnerActions;
+action EventScoringActions;
+
+action TeamViewActions;
+action TeamMgmtActions;
+
+action PlayerViewActions;
+action PlayerEditActions;
+
+// ---- Platform-level actions --------------------------------------------
+
+action "BROWSE_EVENTS",
+       "BROWSE_TEAMS",
+       "VIEW_RESULTS_ARCHIVE",
+       "VIEW_RANKINGS_HISTORY",
+       "AI_QA"
+  in [PublicPlatformActions]
+  appliesTo {
+    principal: User,
+    resource: Platform,
+    context: RequestContext,
+  };
+
+action "MANAGE_OWN_NOTIFICATION_CHANNELS",
+       "MANAGE_OWN_NOTIFICATION_PREFERENCES",
+       "RECEIVE_NOTIFICATIONS",
+       "SPOILER_MODE",
+       "SIGN_UP_PLAYER_AS_GUARDIAN"
+  in [SignedInPlatformActions]
+  appliesTo {
+    principal: User,
+    resource: Platform,
+    context: RequestContext,
+  };
+
+action "MANAGE_ALL_USERS",
+       "MODERATE_LISTINGS",
+       "APPROVE_REFEREE",
+       "CREATE_USER_ACCOUNT"
+  in [AdminPlatformActions]
+  appliesTo {
+    principal: User,
+    resource: Platform,
+    context: RequestContext,
+  };
+
+action "CREATE_EVENT", "AI_CREATE_EVENT"
+  in [OrganizerCreateActions]
+  appliesTo {
+    principal: User,
+    resource: Platform,
+    context: RequestContext,
+  };
+
+action "CREATE_TEAM", "CREATE_PLAYER"
+  in [CoachCreateActions]
+  appliesTo {
+    principal: User,
+    resource: Platform,
+    context: RequestContext,
+  };
+
+// ---- Event-level actions -----------------------------------------------
+
+action "VIEW_EVENT",
+       "VIEW_BRACKET",
+       "VIEW_FIXTURE_SCHEDULE",
+       "VIEW_COURT_ASSIGNMENTS",
+       "VIEW_LIVE_SCORES",
+       "VIEW_GAME_RESULTS",
+       "VIEW_MATCH_STATUS",
+       "VIEW_STANDINGS"
+  in [EventViewActions]
+  appliesTo {
+    principal: User,
+    resource: Event,
+    context: RequestContext,
+  };
+
+action "EDIT_EVENT",
+       "DELETE_EVENT",
+       "INVITE_CO_ORGANIZER",
+       "MANAGE_DIVISIONS",
+       "GENERATE_BRACKETS",
+       "GENERATE_FIXTURES",
+       "ASSIGN_COURTS"
+  in [EventOwnerActions]
+  appliesTo {
+    principal: User,
+    resource: Event,
+    context: RequestContext,
+  };
+
+action "ENTER_SCORES", "CONFIRM_MATCH_STATUS"
+  in [EventScoringActions]
+  appliesTo {
+    principal: User,
+    resource: Event,
+    context: RequestContext,
+  };
+
+// ---- Team-level actions ------------------------------------------------
+
+action "VIEW_TEAM", "FOLLOW_TEAM"
+  in [TeamViewActions]
+  appliesTo {
+    principal: User,
+    resource: Team,
+    context: RequestContext,
+  };
+
+action "EDIT_TEAM_PROFILE",
+       "MANAGE_ROSTER",
+       "REGISTER_TEAM_FOR_EVENT"
+  in [TeamMgmtActions]
+  appliesTo {
+    principal: User,
+    resource: Team,
+    context: RequestContext,
+  };
+
+// ---- Player-level actions ----------------------------------------------
+
+action "VIEW_PLAYER", "VIEW_PLAYER_STATS", "FOLLOW_PLAYER"
+  in [PlayerViewActions]
+  appliesTo {
+    principal: User,
+    resource: Player,
+    context: RequestContext,
+  };
+
+action "EDIT_PLAYER_PROFILE",
+       "REGISTER_PLAYER_FOR_EVENT"
+  in [PlayerEditActions]
+  appliesTo {
+    principal: User,
+    resource: Player,
+    context: RequestContext,
+  };

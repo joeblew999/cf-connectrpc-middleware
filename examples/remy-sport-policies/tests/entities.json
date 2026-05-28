@@ -1,0 +1,72 @@
+[
+  {
+    "uid": { "type": "User", "id": "admin" },
+    "attrs": { "email": "admin@remysport.example", "role": "ADMIN" },
+    "parents": []
+  },
+  {
+    "uid": { "type": "User", "id": "wichai" },
+    "attrs": { "email": "wichai.s@assumption.example", "role": "COACH" },
+    "parents": []
+  },
+  {
+    "uid": { "type": "User", "id": "pranom" },
+    "attrs": { "email": "pranom.c@triamudom.example", "role": "COACH" },
+    "parents": []
+  },
+  {
+    "uid": { "type": "User", "id": "somchai" },
+    "attrs": { "email": "somchai.p@assumption.example", "role": "ORGANIZER" },
+    "parents": []
+  },
+  {
+    "uid": { "type": "User", "id": "adisorn" },
+    "attrs": { "email": "adisorn.b@bat.example", "role": "REFEREE" },
+    "parents": []
+  },
+  {
+    "uid": { "type": "User", "id": "thanakorn" },
+    "attrs": { "email": "thanakorn.s@personal.example", "role": "PLAYER" },
+    "parents": []
+  },
+  {
+    "uid": { "type": "User", "id": "pim" },
+    "attrs": { "email": "pim.s@personal.example", "role": "SPECTATOR" },
+    "parents": []
+  },
+  {
+    "uid": { "type": "Platform", "id": "platform" },
+    "attrs": {},
+    "parents": []
+  },
+  {
+    "uid": { "type": "Team", "id": "asm-u16-boys" },
+    "attrs": {},
+    "parents": []
+  },
+  {
+    "uid": { "type": "Team", "id": "tu-u18-girls" },
+    "attrs": {},
+    "parents": []
+  },
+  {
+    "uid": { "type": "Event", "id": "evt-tournament-001" },
+    "attrs": {},
+    "parents": []
+  },
+  {
+    "uid": { "type": "Event", "id": "evt-camp-001" },
+    "attrs": {},
+    "parents": []
+  },
+  {
+    "uid": { "type": "Player", "id": "ply-thanakorn" },
+    "attrs": {},
+    "parents": []
+  },
+  {
+    "uid": { "type": "Player", "id": "ply-stranger" },
+    "attrs": {},
+    "parents": []
+  }
+]
