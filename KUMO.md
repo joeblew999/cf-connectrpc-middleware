@@ -179,7 +179,7 @@ instead of raw Tailwind color classes for theme-aware text.
 
 ## §7 — Override the system as little as possible
 
-Every line in your `legacy-styles.css` / `theme-extras.css` / `layout-fixes.css`
+Every line in your `chrome.css` / `theme-extras.css` / `layout-fixes.css`
 is a fight with Kumo. The longer those files grow, the more brittle
 your stack becomes (and the more cascade-layer bugs you'll hit).
 

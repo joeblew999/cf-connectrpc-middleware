@@ -237,7 +237,7 @@ CSS import order in `styles.css` is opinionated — see [KUMO.md §2](./KUMO.md)
 @layer legacy, theme, base, components, utilities, editorial;
 ```
 
-- `legacy` — `legacy-styles.css` under `layer(legacy)`. Lowest precedence.
+- `legacy` — `editorial-chrome.css` under `layer(legacy)`. Lowest precedence. Holds base resets + the `.shell/.topbar/.brand/.page` chrome classes; the palette is generated separately (see Theme architecture).
 - `theme` / `base` / `components` / `utilities` — Tailwind v4 + Kumo.
 - `editorial` — `theme-editorial-extras.css` + `layout-fixes.css` under
   `layer(editorial)`. Highest precedence among layered rules.
