@@ -1,0 +1,46 @@
+[package]
+name = "connectrpc-cedar"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+authors = ["Joe Blew <gedw99@gmail.com>"]
+description = "Cedar policy authorization middleware (tower::Layer) for connectrpc on Cloudflare Workers"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/joeblew999/connectrpc-cedar"
+
+[lib]
+# cdylib so a downstream Worker that depends on us can still build a
+# single wasm artifact; rlib so we're usable as a normal Rust crate
+# (tests, downstream binaries).
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# Version pins MUST match .src/example-multitenant-worker/Cargo.toml.
+# See CLAUDE.md "Version pins" — diverging here breaks composition.
+connectrpc       = { version = "0.4", default-features = false }
+cedar-policy     = "4"
+tower            = { version = "0.5", default-features = false }
+http             = "1"
+http-body        = "1"
+http-body-util   = "0.1"
+bytes            = "1.5"
+# `tracing` for shadow-mode diagnostics. Workers logs go to console via
+# the worker crate's tracing-subscriber adapter; we just emit spans/events.
+tracing          = { version = "0.1", default-features = false, features = ["std", "attributes"] }
+# pin-project-lite for the custom Future enum that's safer than hand-rolled
+# unsafe Pin<&mut> destructuring. Header-only crate, no runtime cost.
+pin-project-lite = "0.2"
+
+[dev-dependencies]
+# In tests we want a runtime to drive futures + assertion helpers. Workers
+# don't use tokio in prod (they use their own JS-task runtime), but for
+# unit tests on native it's the path of least friction.
+tokio = { version = "1", features = ["macros", "rt"] }
+
+[features]
+default = []
+# Opt-in helper that knows how to extract from the connectrpc-workers
+# example-multitenant-worker's SessionContext shape. Downstream consumers
+# with their own session structs build their own extractor; this feature
+# saves the boilerplate for projects that share the example's shape.
+multitenant-extractor = []
