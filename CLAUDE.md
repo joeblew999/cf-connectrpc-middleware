@@ -100,10 +100,7 @@ deleted — they were placeholders never touched. PRs upstream to
 
 ## Kumo frontend (`web-kumo/` sibling)
 
-> **Before any Kumo work, read [KUMO.md](./KUMO.md).** It's the
-> cross-project rulebook (run `kumo ai` first, CSS layer pitfalls,
-> theme-generator gotchas, etc.). The section below covers only the
-> things specific to this repo.
+> Read [KUMO.md](./KUMO.md) before any Kumo work — this section is repo-specific only.
 
 The multitenant fork has **two** frontends now:
 
