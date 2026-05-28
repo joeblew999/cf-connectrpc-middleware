@@ -116,12 +116,14 @@ You **cannot** call it from a consumer project:
 that reads `THEME_CONFIG` (for validation) and emits CSS. Keep it
 ~100 lines, fully typed via JSDoc from
 `@cloudflare/kumo/scripts/theme-generator/types`. See
-[`scripts/theme-generator/generate.mjs`][example-gen] in
-`example-multitenant-worker/web-kumo` for a working example.
+[`scripts/theme-generator/`][example-gen] in
+`example-multitenant-worker/web-kumo` for a working example —
+note the split between `engine.mjs` (emit logic) and per-theme
+`config.<name>.mjs` files.
 
 Emit **unlayered** rules (see §3).
 
-[example-gen]: https://github.com/joeblew999/example-multitenant-worker/blob/cedar/web-kumo/scripts/theme-generator/generate.mjs
+[example-gen]: https://github.com/joeblew999/example-multitenant-worker/tree/cedar/web-kumo/scripts/theme-generator
 
 ---
 
@@ -262,7 +264,56 @@ The toggle is purely a per-page A/B tool.
 
 ---
 
-## §11 — Bundle size: Kumo is heavy, plan for code-splitting
+## §11 — Multi-theme: scope palette to `[data-theme="X"]`, not `:root`
+
+If your app needs more than one theme (e.g. editorial + a per-brand
+theme), do NOT put palette vars under `:root`. Both themes would write
+to `:root` and the later import would unconditionally win, ignoring
+the active `<html data-theme="X">`.
+
+**Correct pattern:**
+
+```css
+/* theme-editorial-palette.css — generated */
+[data-theme="editorial"] {
+  --accent: #d71921;
+  --surface: #111;
+  /* ... */
+  color-scheme: dark;
+}
+
+/* theme-acme-palette.css — generated */
+[data-theme="acme"] {
+  --accent: oklch(0.62 0.18 35);
+  --surface: oklch(0.985 0.005 90);
+  /* ... */
+  color-scheme: light;
+}
+```
+
+Both files coexist; CSS variable inheritance routes the active theme's
+values to descendants like `.shell { background: var(--surface) }`.
+Chrome CSS stays 100% theme-agnostic — same DOM, same classes, two
+different visual outputs.
+
+**Recipe for adding a new theme:**
+
+1. Copy `config.<existing>.mjs` → `config.<new>.mjs`. Edit hex values,
+   font stacks, and `THEME_NAME`.
+2. Register the import + entry in `generate.mjs`'s `THEMES` array.
+3. Add two `@import` lines in `styles.css` — palette CSS + Kumo-mappings.
+4. Add the theme name to your `THEMES` array consumed by ThemeToggle.
+5. Run your codegen (`mise run kumo:theme-gen` or equivalent).
+
+Total time: ~5 minutes per theme, no chrome forks, no per-theme
+selector hacks.
+
+**`color-scheme` works inside `[data-theme="X"]` too** — verified;
+native controls (form widgets, scrollbars) adapt per theme.
+
+---
+
+## §12 — Bundle size: Kumo is heavy, plan for code-splitting
 
 Out of the box, the Kumo bundle is ~830 KB minified (~250 KB gzip)
 because every component you import pulls its Base UI primitive deps.
