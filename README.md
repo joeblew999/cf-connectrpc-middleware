@@ -1,8 +1,10 @@
-# connectrpc-cedar
+# cf-connectrpc
 
-A Rust `tower::Layer` that adds Cedar policy authorization to ConnectRPC
-handlers on Cloudflare Workers. Designed to drop into existing
-`connectrpc-workers`-based Workers with 2 lines of glue code.
+ConnectRPC middleware for Cloudflare Workers. The current focus is **Cedar
+policy authorization** -- a Rust `tower::Layer` (the `connectrpc-cedar` crate)
+that drops into existing `connectrpc-workers`-based Workers with 2 lines of
+glue code. More CF-ops middleware (tracing, metrics, rate-limit, ...) is planned
+on the shared `connectrpc-tower-kit` -- see [MIDDLEWARES.md](./MIDDLEWARES.md).
 
 The crate itself is the goal. The deployed Worker + React frontend
 under `.src/example-multitenant-worker/` exists as the reference shape

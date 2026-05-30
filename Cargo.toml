@@ -28,7 +28,7 @@ edition = "2024"
 rust-version = "1.88"
 authors = ["Joe Blew <gedw99@gmail.com>"]
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/joeblew999/connectrpc-cedar"
+repository = "https://github.com/joeblew999/cf-connectrpc"
 
 # Shared dep pins. MUST match .src/example-multitenant-worker/Cargo.toml —
 # see CLAUDE.md "Version pins". Diverging here breaks composition with

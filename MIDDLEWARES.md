@@ -486,7 +486,7 @@ Columns: `id` | `url` | `lang` | `shape` | `function` | `cf_works` | `evidence`
 | connyay-example-multitenant-worker.AuthLayer | https://github.com/connyay/example-multitenant-worker/blob/main/src/middleware/auth.rs | rust | layer-transparent | session-auth | yes-verified | ships in production |
 | connyay-EdgeReplica.RequestIdLayer | https://github.com/connyay/EdgeReplica/blob/main/worker/src/middleware/request_id.rs | rust | layer-transparent | request-id | yes-verified | ships in production |
 | connyay-EdgeReplica.SessionAuthLayer | https://github.com/connyay/EdgeReplica/blob/main/worker/src/middleware/session_auth.rs | rust | layer-transparent | session-auth | yes-verified | ships in production |
-| connectrpc-cedar.CedarLayer | https://github.com/joeblew999/connectrpc-cedar/blob/main/src/layer.rs | rust | layer-short-circuit | authz-cedar | yes-verified | deployed to workers-multitenant.gedw99.workers.dev |
+| connectrpc-cedar.CedarLayer | https://github.com/joeblew999/cf-connectrpc/blob/main/src/layer.rs | rust | layer-short-circuit | authz-cedar | yes-verified | deployed to workers-multitenant.gedw99.workers.dev |
 | connectrpc.DeadlinePolicy | https://github.com/anthropics/connect-rust/blob/main/connectrpc/src/deadline.rs | rust | service-config | deadline | yes-likely | pure time math, no I/O |
 | connectrpc.Limits | https://github.com/anthropics/connect-rust/blob/main/connectrpc/src/service.rs | rust | service-config | body-size-limit | yes-likely | pure counters |
 | connectrpc.Interceptor | https://github.com/anthropics/connect-rust/blob/main/connectrpc/src/interceptor.rs | rust | interceptor | (any RPC-level) | yes-likely | trait only; zero public library impls |
