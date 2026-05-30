@@ -47,14 +47,14 @@ categories:
 | [`connectrpc-tower-kit`](./crates/connectrpc-tower-kit) | shared primitives | **`generic`** | shipped |
 | [`connectrpc-cedar`](./crates/connectrpc-cedar) | tower::Layer (short-circuit) | **`generic`** | shipped |
 | [`connectrpc-cf-tracing`](./crates/connectrpc-cf-tracing) | tower::Layer (transparent) | **`cf-context`** (reads `request.cf` + `cf-ray`) | shipped |
+| [`connectrpc-cf-rate-limit`](./crates/connectrpc-cf-rate-limit) | tower::Layer (short-circuit) | **`cf-binding: Rate Limiting`** | shipped |
+| [`connectrpc-cf-metrics`](./crates/connectrpc-cf-metrics) | tower::Layer (transparent) | **`cf-binding: Analytics Engine`** | shipped |
 | `connectrpc-cedar-core` | library | `generic` | planned |
-| `connectrpc-cedar-interceptor` | Interceptor (two-trait split) | `generic` | planned |
+| `connectrpc-cedar-interceptor` | Interceptor (two-trait split) | `generic` | planned (blocked on connectrpc `Interceptor` release) |
 | `connectrpc-cedar-macros` | proc-macro decorator | `generic` | planned |
 | `connectrpc-cf-trace-context` | tower::Layer (transparent) | `cf-context` (propagates `cf-ray`) | planned |
 | `connectrpc-cf-access` | tower::Layer (short-circuit) | `cf-context` (verifies CF Access JWT) | planned |
-| `connectrpc-cf-rate-limit` | tower::Layer (short-circuit) | **`cf-binding: Rate Limiting`** | planned |
 | `connectrpc-cf-idempotency` | tower::Layer (short-circuit) | **`cf-binding: KV namespace`** | planned |
-| `connectrpc-cf-metrics` | Interceptor | **`cf-binding: Analytics Engine`** | planned |
 
 Naming rule: **generic crates don't have a `cf-` infix** (`connectrpc-cedar`,
 `connectrpc-cedar-*`). **CF-tied crates have `connectrpc-cf-<function>`**

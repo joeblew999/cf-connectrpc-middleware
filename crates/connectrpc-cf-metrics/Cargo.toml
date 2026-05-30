@@ -1,0 +1,40 @@
+[package]
+name        = "connectrpc-cf-metrics"
+# [cf-binding: Analytics Engine] = consumer must provision an Analytics
+# Engine binding in wrangler.toml. Crate has no `worker` dep — consumer
+# wraps `env.AE` in a `MetricSink` impl.
+description = "[cf-binding: Analytics Engine] Transparent tower::Layer that emits per-RPC counters + latency histograms to Cloudflare Analytics Engine."
+version.workspace      = true
+edition.workspace      = true
+rust-version.workspace = true
+authors.workspace      = true
+license.workspace      = true
+repository.workspace   = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# Pure tower + http instrumentation. NOTE: we do NOT depend on connectrpc
+# itself. The `Interceptor` trait that would naturally fit metrics
+# (Spec::procedure, Spec::stream_type access) only exists on connectrpc
+# main, not in 0.4.2 — see MIDDLEWARES.md §3. So we use the tower::Layer
+# surface and read procedure from req.uri().path() like cf-tracing does.
+tower.workspace            = true
+http.workspace             = true
+tracing.workspace          = true
+pin-project-lite.workspace = true
+
+# async-trait for the MetricSink consumer trait. AE binding itself is sync,
+# but the trait stays async so non-CF hosts can wire async sinks (Prometheus
+# pushgateway, OTLP collector, ...).
+async-trait = "0.1"
+
+# Cross-platform `Instant`. `std::time::Instant` doesn't compile on
+# wasm32-unknown-unknown (no monotonic clock in JS). `web-time` aliases
+# to `performance.now()` on web, falls through to std on native. Tiny dep.
+web-time = "1.1"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt", "sync"] }
+tower = { workspace = true, features = ["util"] }

@@ -13,6 +13,8 @@ members = [
     "crates/connectrpc-tower-kit",
     "crates/connectrpc-cedar",
     "crates/connectrpc-cf-tracing",
+    "crates/connectrpc-cf-rate-limit",
+    "crates/connectrpc-cf-metrics",
 ]
 # `.src/` is gitignored — mutable clones of upstream reference repos
 # (the example workers, kumo, etc.). Cargo would otherwise auto-discover

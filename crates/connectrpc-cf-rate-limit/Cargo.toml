@@ -1,0 +1,41 @@
+[package]
+name        = "connectrpc-cf-rate-limit"
+# [cf-binding: Rate Limiting] = consumer must provision a `[[unsafe.bindings]]`
+# of type "ratelimit" in wrangler.toml. Crate itself has no `worker` dep — the
+# consumer wraps `env.RL` in a `RateLimiter` impl.
+description = "[cf-binding: Rate Limiting] Short-circuit tower::Layer that calls Cloudflare's Rate Limiting binding before dispatch; Connect-protocol 'resource_exhausted' on exceeded."
+version.workspace      = true
+edition.workspace      = true
+rust-version.workspace = true
+authors.workspace      = true
+license.workspace      = true
+repository.workspace   = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# Kit primitives — Rollout (for Observe/Enforce mode), deny_response
+# (Connect-protocol error builder), ShortCircuitFuture (state machine).
+connectrpc-tower-kit = { path = "../connectrpc-tower-kit", version = "0.1.0" }
+
+connectrpc.workspace       = true
+tower.workspace            = true
+http.workspace             = true
+http-body.workspace        = true
+http-body-util.workspace   = true
+bytes.workspace            = true
+tracing.workspace          = true
+pin-project-lite.workspace = true
+
+# async-trait for the RateLimiter trait. Matches what `connectrpc::Interceptor`
+# uses, so consumers writing both don't pull in two async-trait variants.
+async-trait = "0.1"
+
+# `futures` for `BoxFuture` — the rate-limit check is async and we need to
+# box S::Future + the check future into a single typed Future.
+futures = { version = "0.3", default-features = false, features = ["alloc"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt"] }
+tower = { workspace = true, features = ["util"] }
