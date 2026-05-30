@@ -8,6 +8,15 @@ The crate itself is the goal. The deployed Worker + React frontend
 under `.src/example-multitenant-worker/` exists as the reference shape
 the layer must compose with cleanly.
 
+## Related repositories
+
+Sibling joeblew999 Rust-on-Cloudflare-Workers projects (not dependencies of
+this crate):
+
+- **[workers-rs-util](https://github.com/joeblew999/workers-rs-util)**: `cloudflare-shell` FS abstraction (native + Cloudflare) plus nushell plugins. Its `nu_plugin_cedar` shares the same `cedar-policy` crate this layer uses.
+- **[http-nu](https://github.com/joeblew999/http-nu)**: Nushell-scriptable, cross.stream-powered HTTP server.
+- **[xs](https://github.com/joeblew999/xs)**: cross.stream local-first event store (powers http-nu).
+
 ## Live demo
 
 Deployed at https://workers-multitenant.gedw99.workers.dev/
