@@ -349,3 +349,32 @@ the npm-local copy and introduces version drift.
 - `connectrpc` is at `0.4`, **not** `0.6` — earlier survey was wrong.
 - Build target is `wasm32-unknown-unknown`, **not** `wasm32-wasip1` —
   comment in the example Cargo.toml confirms.
+- `connectrpc::Interceptor` (surface #3 in MIDDLEWARES.md §1) **does
+  not exist in published `connectrpc 0.4.2`** — only on the upstream
+  `main` branch. `cf-metrics` ships as a `tower::Layer` until a
+  release includes the trait. `cedar-interceptor` is blocked on the
+  same.
+- **`tracing_subscriber::fmt` on wasm32 panics by default**: the
+  default time format calls `std::time::SystemTime::now()`, which is
+  unsupported on `wasm32-unknown-unknown`. The fmt layer's
+  `on_event` panics with "unreachable" on every event, surfacing as
+  a 500 + hung-request error in `wrangler dev`. **Fix**: call
+  `.without_time()` on the fmt builder. CF already attaches its own
+  timestamps via `wrangler tail` / Logpush. See
+  `.src/example-multitenant-worker/src/observability.rs`.
+- **`worker::Delay` is `!Send`**: it holds a JS closure. If your
+  middleware uses `Delay` (e.g. timing out a binding call) and the
+  trait it adapts requires `Send` futures (most of ours do, for
+  `tower::Service` bounds), wrap with `worker::send::SendFuture::new`.
+  Sound on Workers because the runtime is single-threaded.
+- **CF Rate Limiting binding is "remote" in `wrangler dev`**: the JS
+  promise from `worker::RateLimiter::limit(...)` can stall locally
+  (binding handshakes but no Cloudflare backend responds). Always
+  guard CF-binding calls with a short timeout (we use 500ms in
+  `cf_rate_limit.rs`) so the layer fails-open instead of hanging
+  ~15s before miniflare cancels the request.
+- **Local D1 needs migrating before signup works**: `mise run
+  worker:d1-migrate` applies `migrations/0001_init.sql` to
+  `.wrangler/state/v3/d1` — without this, signup returns 500 from
+  inside the handler (the layer stack is fine, the DB write fails).
+  Easy to forget after a fresh clone or `worker:teardown`.
