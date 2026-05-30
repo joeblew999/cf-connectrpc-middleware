@@ -1,0 +1,35 @@
+[package]
+name        = "connectrpc-cf-tracing"
+# [cf-context] = uses CF-Workers-specific runtime data (request.cf, cf-ray)
+# but declares no CF binding. Pure `tracing` instrumentation; works on any
+# host that hands us the right extension type, but the data we span on is
+# CF-shaped.
+description = "[cf-context] CF-Workers-aware tracing layer for connectrpc — spans per RPC carry colo/country/asn/cf-ray, no bindings required."
+version.workspace      = true
+edition.workspace      = true
+rust-version.workspace = true
+authors.workspace      = true
+license.workspace      = true
+repository.workspace   = true
+
+[lib]
+# cdylib so a downstream Worker that depends on us can still build a
+# single wasm artifact; rlib so we're usable as a normal Rust crate
+# (tests, downstream binaries).
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# Pure tracing instrumentation. No `worker` dep at the crate level — the
+# consumer reads `worker::Cf` and supplies a `CfFields` builder closure.
+# Keeps the crate buildable in any environment (tests, axum, hyper, …).
+tower.workspace            = true
+http.workspace             = true
+tracing.workspace          = true
+pin-project-lite.workspace = true
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt"] }
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt"] }
+# Workspace pin disables default features; tests want `service_fn` from
+# the util feature. Mirroring how connectrpc-cedar handles this.
+tower = { workspace = true, features = ["util"] }

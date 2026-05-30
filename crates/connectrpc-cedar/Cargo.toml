@@ -1,6 +1,6 @@
 [package]
 name        = "connectrpc-cedar"
-description = "Cedar policy authorization middleware (tower::Layer) for connectrpc on Cloudflare Workers"
+description = "[generic] Cedar policy authorization middleware (tower::Layer) for connectrpc. No CF binding required."
 version.workspace      = true
 edition.workspace      = true
 rust-version.workspace = true

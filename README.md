@@ -8,9 +8,45 @@ drops into existing `connectrpc-workers`-based Workers with 2 lines of glue
 code. More CF-ops middleware (tracing, metrics, rate-limit, ...) is planned on
 the shared `connectrpc-tower-kit` -- see [MIDDLEWARES.md](./MIDDLEWARES.md).
 
-The crate itself is the goal. The deployed Worker + React frontend
+The crates are the goal. The deployed Worker + React frontend
 under `.src/example-multitenant-worker/` exists as the reference shape
-the layer must compose with cleanly.
+each layer must compose with cleanly.
+
+## Crates in this workspace
+
+CF binding status is part of every crate's identity — what the user
+needs to provision in `wrangler.toml` before adopting it. Three
+categories:
+
+- **`generic`** — works on any `connectrpc` host. No CF-specific data,
+  no CF binding. `connectrpc-cedar` is the canonical example: it reads
+  whatever the consumer's `extractor` pulls out of `req.extensions()`.
+- **`cf-context`** — reads CF-Workers-specific runtime data
+  (`request.cf`, `cf-ray` header, etc.) but declares no CF binding.
+  Runs natively on a Worker; falls back to empty fields elsewhere.
+- **`cf-binding: <kind>`** — declares a CF binding the consumer must
+  provision (Analytics Engine, Rate Limiting, KV namespace, …). Listed
+  per crate.
+
+| Crate | Surface | CF status | Status |
+| --- | --- | --- | --- |
+| [`connectrpc-tower-kit`](./crates/connectrpc-tower-kit) | shared primitives | **`generic`** | shipped |
+| [`connectrpc-cedar`](./crates/connectrpc-cedar) | tower::Layer (short-circuit) | **`generic`** | shipped |
+| [`connectrpc-cf-tracing`](./crates/connectrpc-cf-tracing) | tower::Layer (transparent) | **`cf-context`** (reads `request.cf` + `cf-ray`) | shipped |
+| `connectrpc-cedar-core` | library | `generic` | planned |
+| `connectrpc-cedar-interceptor` | Interceptor (two-trait split) | `generic` | planned |
+| `connectrpc-cedar-macros` | proc-macro decorator | `generic` | planned |
+| `connectrpc-cf-trace-context` | tower::Layer (transparent) | `cf-context` (propagates `cf-ray`) | planned |
+| `connectrpc-cf-access` | tower::Layer (short-circuit) | `cf-context` (verifies CF Access JWT) | planned |
+| `connectrpc-cf-rate-limit` | tower::Layer (short-circuit) | **`cf-binding: Rate Limiting`** | planned |
+| `connectrpc-cf-idempotency` | tower::Layer (short-circuit) | **`cf-binding: KV namespace`** | planned |
+| `connectrpc-cf-metrics` | Interceptor | **`cf-binding: Analytics Engine`** | planned |
+
+Naming rule: **generic crates don't have a `cf-` infix** (`connectrpc-cedar`,
+`connectrpc-cedar-*`). **CF-tied crates have `connectrpc-cf-<function>`**
+(`connectrpc-cf-tracing`, `connectrpc-cf-metrics`). See
+[MIDDLEWARES.md](./MIDDLEWARES.md) §1 for the six middleware surfaces and
+§3 for the canonical stack ordering.
 
 ## Related repositories
 

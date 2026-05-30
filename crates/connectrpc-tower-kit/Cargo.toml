@@ -1,6 +1,6 @@
 [package]
 name        = "connectrpc-tower-kit"
-description = "Shared primitives for Connect-RPC tower middleware on Cloudflare Workers — Rollout trait, denial-response builder, Future enum helper"
+description = "[generic] Shared primitives for Connect-RPC tower middleware — Rollout trait, denial-response builder, Future enum helper. Works on any connectrpc host."
 version.workspace      = true
 edition.workspace      = true
 rust-version.workspace = true

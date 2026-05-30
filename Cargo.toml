@@ -12,6 +12,7 @@ resolver = "2"
 members = [
     "crates/connectrpc-tower-kit",
     "crates/connectrpc-cedar",
+    "crates/connectrpc-cf-tracing",
 ]
 # `.src/` is gitignored — mutable clones of upstream reference repos
 # (the example workers, kumo, etc.). Cargo would otherwise auto-discover
