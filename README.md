@@ -1,12 +1,26 @@
 # cf-connectrpc-middleware
 
-ConnectRPC middleware for Cloudflare Workers. Built to compose with
+ConnectRPC middleware for Cloudflare Workers in Rust. Built to compose with
 [connyay/connectrpc-workers](https://github.com/connyay/connectrpc-workers) (the
-server-side ConnectRPC runtime for Workers). The current focus is **Cedar policy
-authorization** -- a Rust `tower::Layer` (the `connectrpc-cedar` crate) that
-drops into existing `connectrpc-workers`-based Workers with 2 lines of glue
-code. More CF-ops middleware (tracing, metrics, rate-limit, ...) is planned on
-the shared `connectrpc-tower-kit` -- see [MIDDLEWARES.md](./MIDDLEWARES.md).
+server-side ConnectRPC runtime for Workers).
+
+> ### 📚 [MIDDLEWARES.md](./MIDDLEWARES.md) — the catalog
+>
+> Comprehensive reference for **every Connect-RPC middleware on
+> GitHub** we could find, with per-entry verdict on Cloudflare
+> Workers (`wasm32-unknown-unknown`) compatibility. Six middleware
+> surfaces, six recurring design patterns, ~30 prior-art entries
+> categorized by tier. **If you searched for "connect-rpc rust
+> middleware", "connectrpc tower layer", "cloudflare workers connect
+> rpc", or "cedar + tower" — start there.**
+
+The current implementation focus is **Cedar policy authorization** —
+a Rust `tower::Layer` (the `connectrpc-cedar` crate) that drops into
+existing `connectrpc-workers`-based Workers with 2 lines of glue
+code. **CF-ops middleware** (tracing — shipped today; metrics,
+rate-limit, idempotency, … — planned) joins the same workspace on
+the shared `connectrpc-tower-kit`. See the
+[crate table below](#crates-in-this-workspace).
 
 The crates are the goal. The deployed Worker + React frontend
 under `.src/example-multitenant-worker/` exists as the reference shape

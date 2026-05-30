@@ -1,15 +1,26 @@
-# Connect-RPC Middleware Catalog (Rust)
+# Connect-RPC Middleware Catalog — Rust + Cloudflare Workers
 
-A working reference for everyone building on `connectrpc` in Rust — what
-middlewares exist, what *shape* they take, what's missing, and how to
-find new ones as the ecosystem grows.
+The catalog of **every** Connect-RPC middleware on GitHub that we
+could find, with per-entry verdict on whether it compiles for
+`wasm32-unknown-unknown` (= runs on Cloudflare Workers). Covers
+`tower::Layer` wrappers, `connectrpc::Interceptor` impls,
+`ConnectRpcService` config knobs, handler-side helpers, and
+proc-macro decorators — six surfaces total ([§1](#1-six-middleware-surfaces-in-connectrpc)).
 
-Cedar (this repo) is **one** entry. The point of this file is to map the
-whole surface so we (and anyone else building on Connect-RPC) can find
-prior art and know which slot they're filling.
+**Audience**: anyone building on `connectrpc` in Rust, especially on
+Cloudflare Workers. If you searched for "connect-rpc rust middleware",
+"connectrpc tower layer", "cloudflare workers connect rpc", "cedar +
+tower", or "connectrpc interceptor" — this is the right page.
+
+**Source**: this repo, [`cf-connectrpc-middleware`](https://github.com/joeblew999/cf-connectrpc-middleware),
+ships the first three library crates filling the empty intersection
+(`connectrpc-tower-kit`, `connectrpc-cedar`, `connectrpc-cf-tracing`)
+plus more planned — see the [crate table in the README](./README.md#crates-in-this-workspace).
+The catalog isn't a side note here; it's the design map the whole
+repo is built against.
 
 Last full sweep: **2026-05-28** (against `connectrpc 0.4`, authenticated
-`gh search code` queries).
+`gh search code` queries). Cadence: monthly re-runs ([§5](#5-how-to-find-more)).
 
 ---
 
@@ -141,8 +152,9 @@ Notable **absences** (the things that mean "no" for wasm32):
 | Session auth (decode bearer → SessionContext) | transparent Layer | **shipped** in `connyay/example-multitenant-worker` (`middleware/auth.rs`) | Macaroon-based; pattern transfers to JWT/opaque tokens |
 | Path-based authz (Cedar) | short-circuit Layer | **shipped** (this repo, `connectrpc-cedar`) | First of its kind on Connect-RPC |
 | Body-aware authz | Interceptor | **missing** | Greenfield; no public Interceptor impls anywhere |
-| Tracing / structured logging | Interceptor or Layer | **missing** | `tracing` crate is wasm-friendly; nobody's published a Connect-RPC `tracing-layer` yet |
-| Metrics (counter / histogram per RPC) | Interceptor (needs `Spec`) | **missing** | Same gap as tracing |
+| CF-context tracing (`request.cf` + `cf-ray` → span fields) | transparent Layer | **shipped** (this repo, `connectrpc-cf-tracing`) | First published Connect-RPC tracing crate for CF Workers |
+| Generic tracing / structured logging (non-CF) | Interceptor or Layer | **missing** for Interceptor surface | `connectrpc-cf-tracing` covers the CF case; a non-CF variant is still open |
+| Metrics (counter / histogram per RPC) | Interceptor (needs `Spec`) | **missing** | Same gap as generic tracing |
 | Rate limiting | short-circuit Layer | **missing** | Most CF deployments use CF's built-in rate limit binding instead |
 | CORS | short-circuit Layer | **missing**; CF Workers usually handle CORS in `worker::Cors` directly | Look at `worker::Cors` first |
 | Deadline / timeout | `ConnectRpcService` config | **shipped** in `connectrpc::DeadlinePolicy` | Don't write your own |
@@ -184,12 +196,24 @@ is". Entries are grouped by relevance to a fresh CF-Workers consumer.
 - **Why care**: confirms connyay has a **convention** — every CF Worker they ship has the same middleware module layout. This is the de-facto template.
 - **CF Workers**: **yes (verified in production)**.
 
-#### `connectrpc-cedar` (this repo) — `src/layer.rs`
-- **Shape**: short-circuit `tower::Layer` + `tower::Service<http::Request<B>, Response = Response<ConnectRpcBody>, Error = Infallible>`
+#### `connectrpc-tower-kit` (this repo) — `crates/connectrpc-tower-kit/`
+- **Shape**: foundation library (not a middleware itself).
+- **What**: shared primitives every middleware in the family depends on — `Rollout` trait (generalizes `Mode::Shadow`/`Enforce` so rate-limit / validation / tracing-sampling crates can ship the same safe-rollout knob with their own enum), `deny_response(ConnectError) -> Response<ConnectRpcBody>` (Connect-protocol error builder), `ShortCircuitFuture<F>` (`pin_project_lite` Future enum for any short-circuiting Layer), canonical extension-type name docs.
+- **Why care**: the kit any new Connect-RPC middleware should be built on. Reading its 4 source files is the fastest way to understand what conventions this catalog's §6 patterns translate to in code.
+- **CF Workers**: **yes (generic — no CF data, no CF binding; works on any `connectrpc` host)**.
+
+#### `connectrpc-cedar` (this repo) — `crates/connectrpc-cedar/src/layer.rs`
+- **Shape**: short-circuit `tower::Layer` + `tower::Service<http::Request<B>, Response = Response<ConnectRpcBody>, Error = Infallible>`. Depends on the kit's `Rollout` + denial-response builder + `ShortCircuitFuture`.
 - **What**: Cedar policy authz with `Mode::Shadow` (log-only, never reject) and `Mode::Enforce` (reject on `Decision::Deny`). `skip_paths` for health checks.
-- **Why care**: first short-circuiting Layer in the ecosystem. Shadow mode is unique — no other middleware in this catalog has it.
-- **Future**: complement with a `connectrpc-cedar-interceptor` crate for body-aware authz (the Interceptor surface is empty).
+- **Why care**: first short-circuiting Layer in the ecosystem. Shadow mode is unique — no other middleware in this catalog has it. Pairs with the `connectrpc-cf-tracing` entry below: every Cedar decision shows up inside the tracing span's `cf.*` fields automatically when both are wired.
+- **Future**: complement with `connectrpc-cedar-interceptor` (body-aware, two-trait split per pattern §6.4) and `connectrpc-cedar-macros` (`#[require_authorized(...)]` proc-macro). See [README crate table](./README.md#crates-in-this-workspace).
 - **CF Workers**: **yes (verified — shipped to `workers-multitenant.gedw99.workers.dev`)**.
+
+#### `connectrpc-cf-tracing` (this repo) — `crates/connectrpc-cf-tracing/`
+- **Shape**: transparent `tower::Layer` + generic `tower::Service<http::Request<B>>`. Pure pass-through; opens a `tracing::Span` around `inner.call(req)`, never short-circuits.
+- **What**: per-RPC span carrying CF-Workers runtime metadata — `cf.procedure` (resolved RPC path), `cf.colo`, `cf.country`, `cf.asn`, `cf.tls_cipher`, `cf.http_protocol`, `cf.ray` — pulled from `worker::Cf` (which workers-rs auto-inserts at [`http/request.rs:41`](https://github.com/cloudflare/workers-rs)) and the `cf-ray` header. Every event logged downstream picks up the active span's fields.
+- **Why care**: **first published Connect-RPC tracing middleware crate for CF Workers**. Closes a wishlist gap from §3. Deliberately does NOT adopt the kit's `Rollout` trait (tracing has no off-mode worth toggling) — proves the kit's traits are opt-in.
+- **CF Workers**: **yes (cf-context — reads `request.cf` + `cf-ray`; declares no CF binding; falls back gracefully on non-CF hosts)**.
 
 ### Tier 2 — built into `connectrpc` itself
 
@@ -434,12 +458,16 @@ should read the six patterns above before starting.
 - **6** middleware surfaces in connectrpc (`tower::Layer` transparent,
   `tower::Layer` short-circuit, `Interceptor`, `ConnectRpcService`
   config, handler-helper, **proc-macro decorator**).
-- **5** Rust + Connect-RPC + CF Workers + middleware-shaped repos exist
-  in the world (connyay × 3 workers, this crate, depot's TS sibling).
+- **5** Rust + Connect-RPC + CF Workers consumer repos in the world
+  (connyay × 3 workers, this repo's example worker, depot's TS sibling).
   That's the entire field.
 - **3** real `connectrpc::Interceptor` impls exist publicly — all of
   them in the upstream crate's `tests/streaming/`, none in a library.
-- **0** published crates on crates.io are Connect-RPC middleware.
+- **3** library crates this repo ships filling the empty intersection
+  (`connectrpc-tower-kit`, `connectrpc-cedar`, `connectrpc-cf-tracing`).
+  Pre-crates.io publish; consumed by path-dep from the example worker.
+- **0** published crates on crates.io are Connect-RPC middleware
+  (literal — no one's `cargo publish`-ed yet; we're next).
 - **6** middlewares in the most complete framework (Govcraft) — but on
   the wrong stack (axum + tonic). Direction-of-travel reference.
 - **1** novel surface discovered while researching: `protovalidate-buffa`'s
@@ -486,7 +514,9 @@ Columns: `id` | `url` | `lang` | `shape` | `function` | `cf_works` | `evidence`
 | connyay-example-multitenant-worker.AuthLayer | https://github.com/connyay/example-multitenant-worker/blob/main/src/middleware/auth.rs | rust | layer-transparent | session-auth | yes-verified | ships in production |
 | connyay-EdgeReplica.RequestIdLayer | https://github.com/connyay/EdgeReplica/blob/main/worker/src/middleware/request_id.rs | rust | layer-transparent | request-id | yes-verified | ships in production |
 | connyay-EdgeReplica.SessionAuthLayer | https://github.com/connyay/EdgeReplica/blob/main/worker/src/middleware/session_auth.rs | rust | layer-transparent | session-auth | yes-verified | ships in production |
-| connectrpc-cedar.CedarLayer | https://github.com/joeblew999/cf-connectrpc-middleware/blob/main/src/layer.rs | rust | layer-short-circuit | authz-cedar | yes-verified | deployed to workers-multitenant.gedw99.workers.dev |
+| cf-connectrpc-middleware.connectrpc-tower-kit | https://github.com/joeblew999/cf-connectrpc-middleware/tree/main/crates/connectrpc-tower-kit | rust | library | shared-primitives (Rollout, denial-response, ShortCircuitFuture) | yes-verified | workspace member; depended on by connectrpc-cedar |
+| cf-connectrpc-middleware.connectrpc-cedar | https://github.com/joeblew999/cf-connectrpc-middleware/blob/main/crates/connectrpc-cedar/src/layer.rs | rust | layer-short-circuit | authz-cedar | yes-verified | deployed to workers-multitenant.gedw99.workers.dev |
+| cf-connectrpc-middleware.connectrpc-cf-tracing | https://github.com/joeblew999/cf-connectrpc-middleware/blob/main/crates/connectrpc-cf-tracing/src/layer.rs | rust | layer-transparent | tracing-cf-context | yes-verified | wired as outermost layer in example-multitenant-worker |
 | connectrpc.DeadlinePolicy | https://github.com/anthropics/connect-rust/blob/main/connectrpc/src/deadline.rs | rust | service-config | deadline | yes-likely | pure time math, no I/O |
 | connectrpc.Limits | https://github.com/anthropics/connect-rust/blob/main/connectrpc/src/service.rs | rust | service-config | body-size-limit | yes-likely | pure counters |
 | connectrpc.Interceptor | https://github.com/anthropics/connect-rust/blob/main/connectrpc/src/interceptor.rs | rust | interceptor | (any RPC-level) | yes-likely | trait only; zero public library impls |
@@ -549,6 +579,8 @@ but didn't surface anything middleware-shaped. Re-check periodically.
 
 ## 9. Backlog (this catalog)
 
+- [x] **Tracing layer for CF Workers** — shipped as `connectrpc-cf-tracing`
+      v0.1 (2026-05-30). Covers `request.cf` + `cf-ray` → span fields.
 - [ ] **Nushell + JSONL extraction**: write `scripts/middlewares-extract.nu`
       that parses §8 tables into `middlewares.jsonl`. Pattern: same as
       `tauri-plugins-catalog`. Once it lands, this MD becomes the
@@ -558,6 +590,16 @@ but didn't surface anything middleware-shaped. Re-check periodically.
       to CI so we catch regressions if upstream changes.
 - [ ] **Re-sweep monthly**: re-run the §5 queries; promote any newly-
       surfaced repos from Tier 5 to Tier 1–4 with proper analysis.
-- [ ] **Fill the wishlist gaps** (§3): tracing-layer, metrics-interceptor,
-      body-aware-authz (`connectrpc-cedar-interceptor`), idempotency-replay.
-      Each one is a real package this catalog will gladly host.
+- [ ] **Publish to crates.io**: the family is path-dep-only today.
+      Pushing v0.1 of all 3 crates lets others `cargo add` instead of
+      forking.
+- [ ] **Fill the remaining wishlist gaps** (§3):
+      - `connectrpc-cedar-interceptor` (body-aware authz, two-trait split)
+      - `connectrpc-cedar-macros` (`#[require_authorized(...)]`)
+      - `connectrpc-cf-metrics` (Analytics Engine binding)
+      - `connectrpc-cf-rate-limit` (Rate Limiting binding)
+      - `connectrpc-cf-idempotency` (KV binding)
+      - `connectrpc-cf-trace-context` (W3C `traceparent` + `cf-ray` propagation)
+      - `connectrpc-cf-access` (CF Access JWT verification)
+      Each is a real package this catalog will gladly host. See the
+      [README crate table](./README.md#crates-in-this-workspace) for status.
