@@ -31,8 +31,8 @@ Reference workers it must compose with (cloned at
 
 | Dep                | Version  |
 | ------------------ | -------- |
-| `connectrpc`       | `0.4`    |
-| `connectrpc-build` | `0.4`    |
+| `connectrpc`       | `0.6`    |
+| `connectrpc-build` | `0.6`    |
 | `tower`            | `0.5`    |
 | `http`             | `1`      |
 | `http-body`        | `1`      |
@@ -99,7 +99,7 @@ After workspace conversion (planned next):
 crates/connectrpc-tower-kit/             new — Rollout trait, Chain<I>, denial-response builder
 crates/connectrpc-cedar-core/            new — CedarAuthorizer + types (no Layer)
 crates/connectrpc-cedar-layer/           current src/ split out
-crates/connectrpc-cedar-interceptor/     future — body-aware
+crates/connectrpc-cedar-interceptor/     BUILT — body-aware authz on connectrpc::Interceptor (0.6)
 crates/connectrpc-cedar-macros/          future — proc-macro
 ```
 
@@ -330,30 +330,61 @@ Reference as `$env.WASM_TARGET` etc. — do **not** hardcode.
 `cargo:pre-commit` chains `format + lint + test + machete` via `depends`.
 Run before every commit.
 
+### Cedar GUI / MCP tooling (cedar:* extensions)
+
+Beyond `cedar:validate/format/test`, the `cedar:*` namespace wraps Cedar's
+editor + agent tooling:
+
+| Task | What |
+| --- | --- |
+| `cedar:tools` | One-time build of the two git-only binaries into `.tools/bin` (see trap below). Prereq for `cedar:lsp` + `cedar:schema:from-mcp`. |
+| `cedar:viz` | `cedar visualize --entities` → `<policy-dir>/entities.dot` (Graphviz) per `examples/*-policies/tests/entities.json`. Writes `.svg` only if `dot` is on PATH (graphviz isn't in mise's registry, so `.dot`-only by default). |
+| `cedar:lsp` | Runs `cedar-language-server` over stdio (Neovim/Helix). VS Code users want the extension — see [.vscode/extensions.json](./.vscode/extensions.json) (`cedar-policy.vscode-cedar`). |
+| `cedar:mcp:install` | Clones `cedar-policy/cedar-for-agents` into `.src/` and `npm`-builds the **analysis MCP server** (verify-policy-changes / detect-policy-issues). Upstream ships it Docker-only; we build from source with the mise node toolchain. |
+| `cedar:mcp:config` | Prints the `mcpServers` JSON block (node → built `dist/server.js`) to paste into a Claude/Q MCP client. Point it at `examples/remy-sport-policies/policies/*.cedar` to reason about the matrix before shipping a change. |
+| `cedar:schema:from-mcp` | `cedar-policy-mcp-schema-generator generate <stub> <tools.json>` — turns an MCP tool manifest into a Cedar schema. |
+
+Only **one** Cedar tool is a clean mise registry install: `cargo:cedar-policy-cli`
+(the `cedar` binary, on crates.io) — it powers `cedar:validate/format/viz`. The
+other three are NOT distributed as binaries by upstream (see Known traps).
+
 ## Proto codegen pipeline
 
 Two independent, language-local toolchains — **no shared system `buf`**:
 
-- **Rust (Worker)**: `connectrpc-build = "0.4"` as a `[build-dependencies]`
+- **Rust (Worker)**: `connectrpc-build = "0.6"` as a `[build-dependencies]`
   entry; `build.rs` calls `Config::new().files(...).compile()`. Protos
-  compile at `cargo build` time. No `buf` CLI needed.
+  compile at `cargo build` time. **connectrpc-build 0.6 shells out to
+  `protoc`** (0.4 was pure-Rust), so `mise.toml` pins
+  `aqua:protocolbuffers/protobuf/protoc`. Still no `buf` — protoc is the
+  compiler; `buf` is the wrapper we avoid.
 - **TS (frontend)**: `@bufbuild/buf` is an `npm devDependency` in `web/`,
   invoked via `buf generate` (which resolves to `node_modules/.bin/buf`).
   `protoc-gen-es` is also npm-local.
 
 Do **not** add `aqua:bufbuild/buf` to `mise.toml` — it's redundant with
-the npm-local copy and introduces version drift.
+the npm-local copy and introduces version drift. (`protoc` IS in
+`mise.toml`, required by connectrpc-build 0.6 codegen — that's different.)
 
 ## Known traps
 
-- `connectrpc` is at `0.4`, **not** `0.6` — earlier survey was wrong.
+- `connectrpc` is at `0.6` (migrated from 0.4.2 on 2026-06-06). The 0.x
+  scheme makes each minor breaking, so 0.4→0.6 spanned two; the only code
+  impact was `RequestContext` field reads → accessor methods
+  (`ctx.extensions` → `ctx.extensions()` / `ctx.extensions_mut()`). The
+  library crates needed zero changes. **connectrpc-build 0.6 now requires
+  `protoc`** — see Proto codegen pipeline.
 - Build target is `wasm32-unknown-unknown`, **not** `wasm32-wasip1` —
   comment in the example Cargo.toml confirms.
-- `connectrpc::Interceptor` (surface #3 in MIDDLEWARES.md §1) **does
-  not exist in published `connectrpc 0.4.2`** — only on the upstream
-  `main` branch. `cf-metrics` ships as a `tower::Layer` until a
-  release includes the trait. `cedar-interceptor` is blocked on the
-  same.
+- `connectrpc::Interceptor` (surface #3 in MIDDLEWARES.md §1) **shipped in
+  connectrpc 0.6** (it didn't exist in the 0.4.2 we used to pin). Both
+  deferred pieces now exist: `connectrpc-cedar-interceptor` (new crate,
+  body-aware authz) and `connectrpc-cf-metrics`'s `interceptor` module
+  (`MetricsInterceptor`, `Spec::procedure` labels). The example worker
+  wires cedar + metrics as **interceptors** on the `ConnectRpcService`
+  (`.with_interceptor(..)`); cf_tracing / cf_rate_limit / auth stay tower
+  Layers. Note: the Interceptor trait requires `Send + Sync + 'static`,
+  which worker 0.8's AE binding satisfies on wasm32 (verified building).
 - **`tracing_subscriber::fmt` on wasm32 panics by default**: the
   default time format calls `std::time::SystemTime::now()`, which is
   unsupported on `wasm32-unknown-unknown`. The fmt layer's
@@ -378,3 +409,23 @@ the npm-local copy and introduces version drift.
   `.wrangler/state/v3/d1` — without this, signup returns 500 from
   inside the handler (the layer stack is fine, the DB write fails).
   Easy to forget after a fresh clone or `worker:teardown`.
+- **Cedar's LSP + MCP-schema-generator are NOT registry-distributed**:
+  `cedar-language-server` 404s on crates.io (no release tag, no binary
+  asset anywhere) and `cedar-policy-mcp-schema-generator` v0.6.0 ships
+  **0 release assets**. So neither can be a `cargo:` entry in `[tools]`.
+  Three compounding reasons the naive `cargo:` entry fails: (1) not on
+  crates.io; (2) mise's `cargo:` backend can't select a single member
+  from a git **workspace** — it mangles `version = "rev:<sha>"` into
+  `<crate>@rev:<sha>` and cargo rejects it; (3) this machine's
+  `cargo-binstall` shim is ambiguous (two versions, no default), which
+  breaks mise's cargo backend entirely. **Fix**: the `cedar:tools` task
+  runs explicit `cargo install --git <url> --rev <pinned-sha> <crate>
+  [--features cli] --root .tools`, which targets the workspace member
+  correctly. Binaries land in `.tools/bin` (gitignored), put on PATH by
+  `[env] _.path`. Only `cargo:cedar-policy-cli` (the `cedar` binary) is
+  a clean registry install. If upstream ever attaches release binaries,
+  switch the two to mise's `ubi:` backend and drop the source compile.
+- **The analysis MCP server is Docker-only upstream**: not on npm.
+  `cedar:mcp:install` builds it from a `.src/cedar-for-agents` clone via
+  `npm ci` + `tsc`; `cedar:mcp:config` points `node` at the built
+  `dist/server.js` (no Docker — lighter + OS-neutral).

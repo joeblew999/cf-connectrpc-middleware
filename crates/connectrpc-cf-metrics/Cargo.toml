@@ -15,11 +15,14 @@ repository.workspace   = true
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-# Pure tower + http instrumentation. NOTE: we do NOT depend on connectrpc
-# itself. The `Interceptor` trait that would naturally fit metrics
-# (Spec::procedure, Spec::stream_type access) only exists on connectrpc
-# main, not in 0.4.2 — see MIDDLEWARES.md §3. So we use the tower::Layer
-# surface and read procedure from req.uri().path() like cf-tracing does.
+# Two surfaces now ship from this crate (both share the MetricSink trait):
+#   - `layer`       — transparent tower::Layer (reads req.uri().path())
+#   - `interceptor` — connectrpc::Interceptor (reads Spec::procedure,
+#                     derives status from the typed Result<_, ConnectError>)
+# The Interceptor trait landed in connectrpc 0.6 (it didn't exist in the
+# 0.4.2 we used to pin — see MIDDLEWARES.md §3), so we now depend on
+# connectrpc for the interceptor module. The Layer needs none of it.
+connectrpc.workspace       = true
 tower.workspace            = true
 http.workspace             = true
 tracing.workspace          = true

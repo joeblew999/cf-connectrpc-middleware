@@ -11,6 +11,16 @@ dist/
 # Patches against these live in patches/ and ARE checked in.
 .src/
 
+# Repo-local bin dir for git-sourced cargo tools (built by `cedar:tools`).
+.tools/
+
+# Dev daemon logs (pitchfork etc.).
+logs/
+
+# Generated entity-graph artifacts from `cedar:viz` (regenerable).
+examples/*-policies/entities.dot
+examples/*-policies/entities.svg
+
 # Cloud Code VSCode extension bug (writes to a literal "undefined" path).
 undefined/
 

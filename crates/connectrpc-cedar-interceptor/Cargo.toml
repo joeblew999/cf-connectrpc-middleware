@@ -1,0 +1,30 @@
+[package]
+name        = "connectrpc-cedar-interceptor"
+# [generic] = no CF binding required; builds anywhere connectrpc does.
+# The Interceptor-surface sibling of connectrpc-cedar (tower::Layer).
+description = "[generic] Body-aware Cedar authorization on the connectrpc::Interceptor surface. Runs after envelope decode, so the extractor can read the decoded request message — the body-aware authz MIDDLEWARES.md §3 listed as missing."
+version.workspace      = true
+edition.workspace      = true
+rust-version.workspace = true
+authors.workspace      = true
+license.workspace      = true
+repository.workspace   = true
+
+[lib]
+# cdylib so a downstream Worker depending on us still builds one wasm
+# artifact; rlib so it's a normal Rust crate for tests/binaries.
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# Reuse the Layer crate's authorizer + request type + Mode (Rollout).
+# We are the second surface (Interceptor) over the SAME CedarAuthorizer;
+# the schema/policy loading + decision logging shape stays identical.
+connectrpc-cedar = { path = "../connectrpc-cedar", version = "0.1.0" }
+
+connectrpc.workspace   = true
+cedar-policy.workspace = true
+tracing.workspace      = true
+
+[dev-dependencies]
+# Runtime to drive the async Interceptor in unit tests on native.
+tokio = { version = "1", features = ["macros", "rt"] }

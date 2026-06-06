@@ -12,6 +12,7 @@ resolver = "2"
 members = [
     "crates/connectrpc-tower-kit",
     "crates/connectrpc-cedar",
+    "crates/connectrpc-cedar-interceptor",
     "crates/connectrpc-cf-tracing",
     "crates/connectrpc-cf-rate-limit",
     "crates/connectrpc-cf-metrics",
@@ -38,7 +39,7 @@ repository = "https://github.com/joeblew999/cf-connectrpc-middleware"
 # downstream Workers because Cargo can't unify feature sets across the
 # wasm32 build.
 [workspace.dependencies]
-connectrpc       = { version = "0.4", default-features = false }
+connectrpc       = { version = "0.6", default-features = false }
 cedar-policy     = "4"
 tower            = { version = "0.5", default-features = false }
 http             = "1"
