@@ -1,0 +1,10 @@
+{
+  // Official Cedar policy language extension: syntax highlighting,
+  // IntelliSense on entity/action names, go-to-definition, and on-save
+  // validation against the examples/*-policies/*.cedarschema files.
+  // Uses Cedar SDK 4.x — matches our pinned cedar-policy-cli 4.11.0.
+  // Backed by cedar-language-server (also runnable headless via `mise run cedar:lsp`).
+  "recommendations": [
+    "cedar-policy.vscode-cedar"
+  ]
+}

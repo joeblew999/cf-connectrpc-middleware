@@ -35,7 +35,7 @@ sixth was discovered while reading `protovalidate-buffa`):
 | - | --- | --- | --- | --- |
 | 1 | `tower::Layer<S>` *transparent* | wraps `ConnectRpcService`; pass-through on `S::Response`/`S::Error` | `impl<S> Layer<S>` + `type Response = S::Response;` | Enrich request (insert into `extensions`, attach RequestId), never short-circuit |
 | 2 | `tower::Layer<S>` *short-circuit* | wraps `ConnectRpcService`; pins `Response = Response<ConnectRpcBody>`, `Error = Infallible` | `impl<S> Layer<S>` + `ConnectRpcBody` + `Error = Infallible` | Reject requests **before** envelope decode (path-based authz, CORS, rate limit) |
-| 3 | `connectrpc::Interceptor` *(main-branch only)* | registered via `ConnectRpcService::with_interceptor` | `impl Interceptor` + `intercept_unary` / `intercept_streaming` | Body-aware authz, per-RPC logging with `Spec` metadata, anything needing decoded `UnaryRequest`. **⚠ Not in published `connectrpc 0.4.2`** — only on the `anthropics/connect-rust` `main` branch. Use surfaces #1/#2 until it ships. |
+| 3 | `connectrpc::Interceptor` | registered via `ConnectRpcService::with_interceptor` | `impl Interceptor` + `intercept_unary` / `intercept_streaming` | Body-aware authz, per-RPC logging with `Spec` metadata, anything needing the decoded `UnaryRequest`. **Shipped in connectrpc 0.6** (was main-only in the 0.4.2 era). Used here by `connectrpc-cedar-interceptor` + `connectrpc-cf-metrics::MetricsInterceptor`. Note the bound: `Interceptor: Send + Sync + 'static`. |
 | 4 | `ConnectRpcService` *config* | built into the service itself | `Limits`, `DeadlinePolicy`, `with_max_body_size`, etc. | Resource limits, request-asserted timeouts — already shipped, don't write |
 | 5 | Handler-side helper | called inside the handler body | `fn(&ctx, …) -> Result<_, ConnectError>` | Fine-grained authz on body fields; legacy pattern most public repos use |
 | 6 | **Proc-macro handler decorator** | wraps each `impl Service` method at compile time | `#[connect_impl]` attribute injecting code before user body | Per-handler unconditional checks (validation, audit). Zero runtime cost — no `Arc`, no `dyn`. |
@@ -151,10 +151,10 @@ Notable **absences** (the things that mean "no" for wasm32):
 | Request ID | transparent Layer | **shipped** in `connyay/example-connectrpc-worker` (`middleware.rs`) | Canonical pattern, copy-paste-ready |
 | Session auth (decode bearer → SessionContext) | transparent Layer | **shipped** in `connyay/example-multitenant-worker` (`middleware/auth.rs`) | Macaroon-based; pattern transfers to JWT/opaque tokens |
 | Path-based authz (Cedar) | short-circuit Layer | **shipped** (this repo, `connectrpc-cedar`) | First of its kind on Connect-RPC |
-| Body-aware authz | Interceptor | **missing** | Greenfield; no public Interceptor impls anywhere |
+| Body-aware authz | Interceptor | **shipped** — `connectrpc-cedar-interceptor` (connectrpc 0.6) | `intercept_unary` reads `ctx` (path/extensions) + decoded `payload`; reuses `CedarAuthorizer` + `Mode` from `connectrpc-cedar`. Wired into the example worker. |
 | CF-context tracing (`request.cf` + `cf-ray` → span fields) | transparent Layer | **shipped** (this repo, `connectrpc-cf-tracing`) | First published Connect-RPC tracing crate for CF Workers |
 | Generic tracing / structured logging (non-CF) | Interceptor or Layer | **missing** for Interceptor surface | `connectrpc-cf-tracing` covers the CF case; a non-CF variant is still open |
-| Per-RPC metrics (counter + latency histogram) | transparent Layer (Interceptor when Spec lands) | **shipped** (this repo, `connectrpc-cf-metrics`) | Uses URL path for procedure label; will gain `Spec::procedure` when Interceptor lands in a connectrpc release. CF binding: Analytics Engine. |
+| Per-RPC metrics (counter + latency histogram) | transparent Layer **and** Interceptor | **shipped** (this repo, `connectrpc-cf-metrics`) | Two surfaces share one `MetricSink`: the Layer reads `req.uri().path()`; the `MetricsInterceptor` (connectrpc 0.6) reads `Spec::procedure` + typed status. Example worker uses the interceptor. CF binding: Analytics Engine. |
 | Rate limiting | short-circuit Layer | **shipped** (this repo, `connectrpc-cf-rate-limit`) | Wraps CF's Rate Limiting binding; `Mode::Observe`/`Enforce` via the kit's `Rollout` trait. |
 | CORS | short-circuit Layer | **missing**; CF Workers usually handle CORS in `worker::Cors` directly | Look at `worker::Cors` first |
 | Deadline / timeout | `ConnectRpcService` config | **shipped** in `connectrpc::DeadlinePolicy` | Don't write your own |
@@ -618,7 +618,7 @@ but didn't surface anything middleware-shaped. Re-check periodically.
       Pushing v0.1 of all 3 crates lets others `cargo add` instead of
       forking.
 - [ ] **Fill the remaining wishlist gaps** (§3):
-      - `connectrpc-cedar-interceptor` (body-aware authz, two-trait split) — blocked on Interceptor surface shipping in a connectrpc release
+      - [x] `connectrpc-cedar-interceptor` (body-aware authz) — **DONE** (connectrpc 0.6 shipped the Interceptor surface, 2026-06-06). Extractor takes `&UnaryRequest` so it can read `ctx` + decoded `payload`; the header-only/typed-body two-trait split can layer on later if compile-time cost warrants it.
       - `connectrpc-cedar-macros` (`#[require_authorized(...)]`)
       - `connectrpc-cf-idempotency` (KV binding)
       - `connectrpc-cf-trace-context` (W3C `traceparent` + `cf-ray` propagation)

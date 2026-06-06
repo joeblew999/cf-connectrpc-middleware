@@ -2,9 +2,18 @@
 //!
 //! ## What this crate does
 //!
-//! Provides [`MetricsLayer`] — a transparent `tower::Layer` that times
-//! every Connect-RPC call and emits two metrics per request via a
+//! Two surfaces, both emitting the same two metrics through the same
 //! consumer-implemented [`MetricSink`]:
+//!
+//! - [`MetricsLayer`] — transparent `tower::Layer`. Reads `procedure`
+//!   from `req.uri().path()`; status from the HTTP response status. Use
+//!   in a plain `tower` stack, or before envelope decode.
+//! - [`MetricsInterceptor`] — `connectrpc::Interceptor` (since 0.6). Reads
+//!   `procedure` from `Spec::procedure` and status from the typed
+//!   `Result<_, ConnectError>`. Preferred for connectrpc services — see
+//!   the `interceptor` module docs for why it's strictly better there.
+//!
+//! Metrics emitted (both surfaces):
 //!
 //! - **Counter** `rpc_requests_total` — labels `procedure`, `status_class`
 //!   (`2xx` / `4xx` / `5xx`).
@@ -28,20 +37,17 @@
 //! - **Crate-level `worker` dep**: none. Consumer implements
 //!   [`MetricSink`] wrapping `env.AE.write_data_point(...)`.
 //!
-//! ## Why transparent Layer (not Interceptor)
+//! ## Layer and Interceptor
 //!
 //! The `connectrpc::Interceptor` trait is the natural fit for per-RPC
-//! metrics (sees `Spec::procedure`, `Spec::stream_type`, …) but it
-//! **does not exist in published `connectrpc 0.4.2`** — only on the
-//! upstream `main` branch (see MIDDLEWARES.md §3). Until Interceptor
-//! ships in a release, this crate stays on the stable `tower::Layer`
-//! surface and reads procedure from `req.uri().path()` — same approach
-//! as `connectrpc-cf-tracing`.
-//!
-//! When Interceptor lands in a release, we'll publish a sibling crate
-//! `connectrpc-cf-metrics-interceptor` with `Spec`-aware labels.
-//! The two will share the [`MetricSink`] trait so consumers don't
-//! rewrite their sink impl.
+//! metrics (sees `Spec::procedure`, derives status from the typed
+//! result). It didn't exist in the `connectrpc 0.4.2` this crate was
+//! first written against (only on `main` — see MIDDLEWARES.md §3), so the
+//! crate shipped on the stable `tower::Layer` surface. **As of connectrpc
+//! 0.6 the Interceptor landed**, and it now ships here too as
+//! [`MetricsInterceptor`] (module `interceptor`) — same crate, same
+//! [`MetricSink`], so switching surfaces doesn't touch your sink impl.
+//! The Layer stays for non-connectrpc `tower` stacks.
 //!
 //! ## Cross-platform timing
 //!
@@ -50,8 +56,11 @@
 //! monotonic clock; `web_time` aliases to `performance.now()` on web,
 //! falls through to `std::time::Instant` on native).
 
+pub mod interceptor;
 pub mod layer;
 pub mod sink;
+
+pub use interceptor::MetricsInterceptor;
 
 pub use layer::{MetricsFuture, MetricsLayer, MetricsService};
 pub use sink::{MetricSink, NoopSink};

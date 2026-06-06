@@ -4,15 +4,31 @@ node = "latest"
 "aqua:nushell/nushell" = "latest"
 
 # Cloudflare Workers CLI: dev server + deploys. Drives worker-build.
-# Note: buf is intentionally NOT here — Rust side uses connectrpc-build
-# in build.rs; TS side gets @bufbuild/buf via npm install in web/.
+# Note: `buf` is intentionally NOT here. protoc IS (below) — connectrpc-build
+# 0.6 shells out to it for codegen.
 "npm:wrangler" = "latest"
+
+# protoc — REQUIRED by connectrpc-build 0.6's build.rs codegen (it shells
+# out to `protoc`). connectrpc-build 0.4 used a pure-Rust path and needed
+# no external tool; 0.6 reintroduced the protoc dependency. Without this
+# the example worker's build.rs panics: "protoc failed: No version is set
+# for shim: protoc". (protoc is the compiler; `buf` is the wrapper we still
+# avoid — Rust uses connectrpc-build, TS uses npm-local @bufbuild/buf.)
+"aqua:protocolbuffers/protobuf/protoc" = "35.0"
 
 # Frontend (consumer examples). Kumo UI for the Orange theme.
 "npm:@cloudflare/kumo" = "latest"
 
 # Cedar policy CLI (validate / authorize / format). Matches runtime cedar-policy = "4".
 "cargo:cedar-policy-cli" = "4.11.0"
+
+# NOTE: cedar-language-server and cedar-policy-mcp-schema-generator are
+# NOT here. Neither is published to crates.io (cargo install 404s) — both
+# live only inside Cedar's git workspaces (cedar/, cedar-for-agents/) as
+# workspace members. mise's `cargo:` backend can't select a single member
+# from a git workspace, so they're built by the `cedar:tools` task with an
+# explicit `cargo install --git <url> --rev <hash> <crate>`. The binaries
+# land in {{config_root}}/.tools/bin, which `[env] _.path` puts on PATH.
 
 # Rust → wasm32 bundler invoked by wrangler for worker-rs projects.
 "cargo:worker-build" = "latest"
@@ -27,6 +43,11 @@ node = "latest"
 
 
 [env]
+# Repo-local bin dir for tools we `cargo install` from git (cedar
+# language-server + mcp-schema-generator — see `cedar:tools`). Gitignored.
+# Put first so these win over any stale ~/.cargo/bin copies.
+_.path = ["{{config_root}}/.tools/bin"]
+
 # Single source of truth for the wasm target. Used by every cargo:* task.
 WASM_TARGET = "wasm32-unknown-unknown"
 
@@ -52,6 +73,18 @@ MULTITENANT_WORKER = ".src/example-multitenant-worker"
 
 # Better Rust diagnostics during dev.
 RUST_BACKTRACE = "1"
+
+# Cedar "for agents" repo — source of the analysis MCP server, which
+# upstream ships Docker-only (no npm registry build). `cedar:mcp:install`
+# clones it here (gitignored, like the other .src/ clones) and builds the
+# TS server with the mise-managed node toolchain. CEDAR_AGENTS_REPO is on
+# the cedar-policy org, NOT $FORK/$UPSTREAM — so it's cloned directly, not
+# via the src:* fork workflow.
+CEDAR_AGENTS_REPO = "cedar-policy/cedar-for-agents"
+CEDAR_AGENTS_DIR = ".src/cedar-for-agents"
+# Subdir holding the analysis MCP server (package.json bin `mcp` →
+# dist/server.js). Built by `cedar:mcp:install`, pointed at by `cedar:mcp:config`.
+CEDAR_MCP_DIR = ".src/cedar-for-agents/js/cedar-analysis-mcp-server/mcp"
 
 # Multi-statement SQL that empties the D1 in reverse-FK order. Used by
 # every seed:* task BEFORE seeding so each scenario lands in a clean
@@ -708,4 +741,136 @@ if ($dbid | is-not-empty) {
 }
 fnox rm CONNECTRPC_CEDAR_WORKER_URL
 print "torn down. SESSION_KEY left in keychain — run cf:bootstrap again if you want a fresh one."
+"""
+
+
+# ─────────────────────────────────────────────────────────────────────
+# cedar:* — GUI / MCP tooling (extends cedar:validate/format/test above)
+#
+# Sourcing: cedar-language-server + cedar-policy-mcp-schema-generator are
+# `cargo install` registry tools pinned in [tools] (mise installs them on
+# `mise install`). The analysis MCP server is upstream Docker-only, so it's
+# built from source by cedar:mcp:install. graphviz `dot` is NOT in mise's
+# registry and is not assumed present — cedar:viz always emits .dot and only
+# renders .svg when a `dot` happens to be on PATH.
+# ─────────────────────────────────────────────────────────────────────
+
+[tasks."cedar:tools"]
+description = "Build the git-only Cedar binaries (cedar-language-server + cedar-policy-mcp-schema-generator) into .tools/bin via `cargo install --git --rev` pinned to exact commits. Idempotent — skips if already built. Run once after clone (and re-run after bumping the pins). Prereq for cedar:lsp and cedar:schema:from-mcp."
+shell = "nu -c"
+run = """
+let bin = ".tools/bin"
+mkdir $bin
+# cedar-language-server (LSP) — a workspace member of cedar/, pinned commit.
+if (($bin | path join "cedar-language-server") | path exists) {
+  print "cedar-language-server: already built (.tools/bin)"
+} else {
+  print "building cedar-language-server — compiles cedar core, a few minutes..."
+  cargo install --git https://github.com/cedar-policy/cedar --rev 92b97a45c091bb285b997664bf14bfffd8c402cc cedar-language-server --root .tools --locked
+}
+# cedar-policy-mcp-schema-generator — workspace member of cedar-for-agents/, cli feature.
+if (($bin | path join "cedar-policy-mcp-schema-generator") | path exists) {
+  print "cedar-policy-mcp-schema-generator: already built (.tools/bin)"
+} else {
+  print "building cedar-policy-mcp-schema-generator..."
+  cargo install --git https://github.com/cedar-policy/cedar-for-agents --rev 5d3ade51dc1148bbf44d5acb90399defd13e604e cedar-policy-mcp-schema-generator --features cli --root .tools --locked
+}
+print ""
+print "done — binaries in .tools/bin (on PATH via [env] _.path). verify: cedar-language-server --help"
+"""
+
+[tasks."cedar:viz"]
+description = "Render the entity graph for each examples/*-policies/tests/entities.json to <dir>/entities.dot (graphviz). Also writes entities.svg if `dot` is on PATH."
+shell = "nu -c"
+run = """
+let entity_files = (glob examples/*-policies/tests/entities.json)
+if ($entity_files | is-empty) {
+  print "no examples/*-policies/tests/entities.json — skipping"
+  exit 0
+}
+let has_dot = ((which dot | length) > 0)
+if (not $has_dot) {
+  print "note: `dot` not on PATH (graphviz isn't in mise's registry) — writing .dot only."
+  print "      to get SVGs: install graphviz, or render the .dot at https://dreampuf.github.io/GraphvizOnline"
+}
+for ef in $entity_files {
+  let dir = ($ef | path dirname | path dirname)
+  let name = ($dir | path basename)
+  let dot = $"($dir)/entities.dot"
+  cedar visualize --entities $ef out> $dot
+  print $"($name): wrote ($dot)"
+  if $has_dot {
+    let svg = $"($dir)/entities.svg"
+    dot -Tsvg $dot out> $svg
+    print $"($name): wrote ($svg)"
+  }
+}
+"""
+
+[tasks."cedar:lsp"]
+description = "Launch cedar-language-server over stdio. Editors (Neovim/Helix) that spawn an LSP by command point here; VS Code users want the extension instead (see .vscode/extensions.json)."
+shell = "nu -c"
+run = "cedar-language-server"
+
+[tasks."cedar:mcp:install"]
+description = "Clone cedar-policy/cedar-for-agents into $CEDAR_AGENTS_DIR (if absent) and build the analysis MCP server (npm ci + tsc → dist/server.js). Upstream ships it Docker-only; we build from source with the mise node toolchain instead."
+shell = "nu -c"
+run = """
+if not ($env.CEDAR_AGENTS_DIR | path exists) {
+  print $"cloning ($env.CEDAR_AGENTS_REPO) → ($env.CEDAR_AGENTS_DIR)"
+  git clone $"https://github.com/($env.CEDAR_AGENTS_REPO).git" $env.CEDAR_AGENTS_DIR
+} else {
+  print $"($env.CEDAR_AGENTS_DIR) present — git pull --ff-only"
+  git -C $env.CEDAR_AGENTS_DIR pull --ff-only
+}
+cd $env.CEDAR_MCP_DIR
+print "npm ci ..."
+npm ci
+print "npm run build (tsc) ..."
+npm run build
+print ""
+print "built. next: `mise run cedar:mcp:config` to get the JSON block for your MCP client."
+"""
+
+[tasks."cedar:mcp:config"]
+description = "Print the mcpServers JSON block for the Cedar analysis MCP server (verify-policy-changes / detect-policy-issues), pointing node at the locally-built dist/server.js. Paste into your Claude/Q MCP config."
+shell = "nu -c"
+run = """
+let server = $"($env.CEDAR_MCP_DIR)/dist/server.js"
+if not ($server | path exists) {
+  print $"not built yet: ($server) missing — run `mise run cedar:mcp:install` first."
+  exit 1
+}
+let abs = ($server | path expand)
+let node = (which node | get path.0?)
+print "── paste into your MCP client config (e.g. ~/.claude.json mcpServers, or ~/.aws/amazonq/mcp.json) ──"
+print ({
+  mcpServers: {
+    "cedar-analysis": {
+      command: ($node | default "node"),
+      args: [$abs],
+      env: {}
+    }
+  }
+} | to json --indent 2)
+print ""
+print "tools exposed: verify-policy-changes, detect-policy-issues, add-and-verify-new-policy-workflow"
+print "point it at examples/remy-sport-policies/policies/*.cedar to reason about the remy-sport matrix."
+"""
+
+[tasks."cedar:schema:from-mcp"]
+description = "Generate a Cedar schema from an MCP tool-description manifest (cedar-policy-mcp-schema-generator generate). Usage: mise run cedar:schema:from-mcp -- <schema-stub.cedarschema> <tool-descriptions.json> [output.cedarschema]"
+shell = "nu -c"
+usage = '''
+arg "schema_stub" help="Cedar schema stub file used as the base (actions get appended to it)"
+arg "tool_descriptions" help="JSON file of MCP tool descriptions to turn into Cedar actions"
+arg "output" help="Where to write the generated schema (default: stdout)" default=""
+'''
+run = """
+if ($env.usage_output | is-empty) {
+  cedar-policy-mcp-schema-generator generate $env.usage_schema_stub $env.usage_tool_descriptions
+} else {
+  cedar-policy-mcp-schema-generator generate $env.usage_schema_stub $env.usage_tool_descriptions --output $env.usage_output
+  print $"wrote ($env.usage_output)"
+}
 """
