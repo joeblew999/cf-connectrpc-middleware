@@ -30,8 +30,12 @@ node = "latest"
 # explicit `cargo install --git <url> --rev <hash> <crate>`. The binaries
 # land in {{config_root}}/.tools/bin, which `[env] _.path` puts on PATH.
 
-# Rust → wasm32 bundler invoked by wrangler for worker-rs projects.
-"cargo:worker-build" = "latest"
+# NOTE: worker-build is NOT pinned here. Rust on this stack is rustup-managed
+# (RUSTUP_HOME=~/.rustup; ~/.cargo/bin is the toolchain home and stays first on
+# PATH), and wrangler's wrangler.toml `[build]` command already does
+# `cargo install worker-build@^0.8` into ~/.cargo/bin. A mise `cargo:worker-build`
+# pin would just be shadowed by that copy — confusing, never used. Let the rust
+# toolchain own it.
 
 # Dev-quality tools: unused deps, macro expansion (for connectrpc-build debugging).
 "cargo:cargo-machete" = "latest"
