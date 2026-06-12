@@ -1,0 +1,23 @@
+[package]
+name = "rauthy-cedar-app"
+description = "Shared oidc→cedar app: the ConnectRPC service + middleware stack + policies, host-agnostic (runs native AND on CF — the hosts only add JWKS-fetch + serve-loop)."
+version.workspace      = true
+edition.workspace      = true
+rust-version.workspace = true
+publish = false
+
+[lib]
+# rlib so the native server links it; it builds on wasm32 too (the CF worker
+# path-deps it). NO host deps here (no hyper, no worker) — that's the point.
+crate-type = ["rlib"]
+
+[dependencies]
+connectrpc-oidc  = { path = "../../../crates/connectrpc-oidc" }
+connectrpc-cedar = { path = "../../../crates/connectrpc-cedar" }
+cedar-policy.workspace = true
+
+connectrpc     = { workspace = true }
+http           = { workspace = true }
+http-body-util = { workspace = true }
+bytes          = { workspace = true }
+tower          = { workspace = true, features = ["util"] }

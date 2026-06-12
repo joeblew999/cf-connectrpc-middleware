@@ -1,0 +1,14 @@
+name = "rauthy-cedar-worker"
+main = "build/index.js"
+compatibility_date = "2026-04-22"
+
+[build]
+command = "cargo install -q \"worker-build@^0.8\" && worker-build --release"
+
+# Where the Worker validates tokens against. For local `wrangler dev` against a
+# `recipe:local` / serve.nu Rauthy, point these at it (miniflare reaches host
+# localhost). For a deployed Worker use the public https issuer.
+[vars]
+RAUTHY_ISSUER   = "http://localhost:8088/auth/v1/"
+RAUTHY_JWKS_URL = "http://localhost:8088/auth/v1/oidc/certs"
+RAUTHY_AUD      = "worker-client"

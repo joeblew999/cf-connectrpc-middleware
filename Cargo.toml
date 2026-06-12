@@ -11,18 +11,21 @@
 resolver = "2"
 members = [
     "crates/connectrpc-tower-kit",
+    "crates/connectrpc-oidc",
     "crates/connectrpc-cedar",
     "crates/connectrpc-cedar-interceptor",
     "crates/connectrpc-cf-tracing",
     "crates/connectrpc-cf-rate-limit",
     "crates/connectrpc-cf-metrics",
+    "examples/rauthy-cedar/app",
+    "examples/rauthy-cedar/server",
 ]
 # `.src/` is gitignored — mutable clones of upstream reference repos
 # (the example workers, kumo, etc.). Cargo would otherwise auto-discover
 # their Cargo.toml as workspace members. Explicit exclude keeps them
 # building independently (the example worker has its own [profile] and
 # wasm32-only deps that would conflict with workspace settings).
-exclude = [".src", "target", ".git"]
+exclude = [".src", "target", ".git", "examples/rauthy-cedar/worker"]
 
 # Shared metadata — every crate inherits via `workspace = true` in its own
 # [package]. Keeps version + rust-version + edition + repo URL aligned.

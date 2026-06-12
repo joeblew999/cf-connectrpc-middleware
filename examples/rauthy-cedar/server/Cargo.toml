@@ -1,0 +1,25 @@
+[package]
+name = "rauthy-cedar-server"
+description = "NATIVE host for the shared rauthy-cedar-app — hyper + ureq JWKS fetch."
+version.workspace      = true
+edition.workspace      = true
+rust-version.workspace = true
+publish = false
+
+[[bin]]
+name = "rauthy-cedar-server"
+path = "src/main.rs"
+
+[dependencies]
+# All the app logic (middleware + policies + extractor) is shared here.
+rauthy-cedar-app = { path = "../app" }
+connectrpc-oidc  = { path = "../../../crates/connectrpc-oidc" }
+
+http  = { workspace = true }
+tower = { workspace = true, features = ["util"] }
+
+# Native host bits only.
+tokio      = { version = "1", features = ["rt-multi-thread", "net", "macros"] }
+hyper      = { version = "1", features = ["server", "http1"] }
+hyper-util = { version = "0.1", features = ["server", "tokio", "service"] }
+ureq       = "2"

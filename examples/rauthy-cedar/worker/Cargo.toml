@@ -1,0 +1,31 @@
+# Standalone workspace — a CF Worker (cdylib/wasm32) can't share the parent's
+# [profile]/deps. The parent Cargo.toml excludes this path.
+[workspace]
+
+[package]
+name = "rauthy-cedar-worker"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+# Same shared app as the native server — this is the whole point.
+rauthy-cedar-app = { path = "../app" }
+# worker-jwks turns on the worker::Fetch JWKS helper (the one platform diff).
+connectrpc-oidc = { path = "../../../crates/connectrpc-oidc", features = ["worker-jwks"] }
+
+worker        = { version = "0.8", features = ["http"] }
+worker-macros = { version = "0.8", features = ["http"] }
+http  = "1"
+tower = { version = "0.5", default-features = false }
+# tokio sync::OnceCell for the per-isolate JWKS cache (no runtime needed).
+tokio = { version = "1", default-features = false, features = ["sync"] }
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
