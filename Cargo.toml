@@ -17,6 +17,7 @@ members = [
     "crates/connectrpc-cf-tracing",
     "crates/connectrpc-cf-rate-limit",
     "crates/connectrpc-cf-metrics",
+    "examples/rauthy-cedar/demo",
 ]
 # `.src/` is gitignored — mutable clones of upstream reference repos
 # (the example workers, kumo, etc.). Cargo would otherwise auto-discover

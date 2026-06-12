@@ -64,12 +64,12 @@ def main [] {
   $tok | save -f $"($dir)/token.txt"
   ^curl -fsS $"http://localhost:($PORT)/auth/v1/oidc/certs" | save -f $"($dir)/jwks.json"
 
-  print "==> verifying the REAL token through connectrpc-oidc ..."
+  print "==> running the full oidc→cedar demo on the REAL token ..."
   let res = (with-env {
     RAUTHY_TOKEN_FILE: $"($dir)/token.txt",
     RAUTHY_JWKS_FILE: $"($dir)/jwks.json",
     RAUTHY_ISSUER: $ISSUER
-  } { do { ^cargo test -p connectrpc-oidc --test live_rauthy -- --ignored --nocapture } | complete })
+  } { do { ^cargo run -q -p rauthy-cedar-demo } | complete })
 
   print $res.stdout
   do { ^docker rm -f rauthy-e2e } | complete | ignore

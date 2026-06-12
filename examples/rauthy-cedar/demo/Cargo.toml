@@ -1,0 +1,17 @@
+[package]
+name = "rauthy-cedar-demo"
+description = "Live oidc→cedar demo: verify a real Rauthy token, then authorize with Cedar."
+version.workspace      = true
+edition.workspace      = true
+rust-version.workspace = true
+publish = false
+
+[[bin]]
+name = "rauthy-cedar-demo"
+path = "src/main.rs"
+
+[dependencies]
+# Both middleware crates, exactly as a real consumer wires them.
+connectrpc-oidc  = { path = "../../../crates/connectrpc-oidc" }
+connectrpc-cedar = { path = "../../../crates/connectrpc-cedar" }
+cedar-policy.workspace = true
