@@ -1,83 +1,28 @@
-//! Native HTTP server running the real `oidc → cedar` tower middleware.
+//! NATIVE host for the shared `rauthy-cedar-app`.
 //!
-//!   request → OidcLayer (verify Rauthy JWT, insert Session)
-//!           → CedarLayer (map Session→Cedar, authorize)
-//!           → stub RPC (echoes the authorized session)
+//! All the interesting code — the `oidc → cedar` stack, the policies, the
+//! extractor — lives in `rauthy-cedar-app` and is shared verbatim with the CF
+//! Worker (`../worker`). This file does only the two platform-specific things:
+//!   1. fetch JWKS with `ureq` (the Worker uses `worker::Fetch`)
+//!   2. serve with `hyper`   (the Worker uses `worker::event(fetch)`)
 //!
-//! Same two crates a Worker uses, hosted on hyper so you can curl it. The CF
-//! Worker version reuses these exact layers; only the host (hyper vs
-//! worker::event) and the JWKS fetch (ureq vs worker::Fetch) differ.
+//! Env: RAUTHY_ISSUER  RAUTHY_JWKS_URL  [RAUTHY_AUD=worker-client]  [PORT=8090]
 //!
-//! Env:  RAUTHY_ISSUER  RAUTHY_JWKS_URL  [RAUTHY_AUD=worker-client]  [PORT=8090]
-//!
-//! Try it (after `e2e`-style minting, or a token from the GUI):
-//!   curl -s localhost:8090/healthz
 //!   curl -s -H "Authorization: Bearer $TOKEN" -X POST localhost:8090/demo.v1.Api/Read
-//!   curl -s -H "Authorization: Bearer $TOKEN" -X POST localhost:8090/demo.v1.Api/Admin
+//!   curl -s -H "Authorization: Bearer $TOKEN" -X POST localhost:8090/demo.v1.Api/Super
 
 use std::convert::Infallible;
 use std::sync::Arc;
 
-use bytes::Bytes;
-use cedar_policy::{Context, EntityUid, RestrictedExpression};
-use connectrpc::ConnectRpcBody;
-use connectrpc_cedar::{CedarAuthorizer, CedarLayer, CedarRequest, action::action_from_path};
-use connectrpc_oidc::{JwksVerifier, OidcLayer, Session};
-use http::{Response, StatusCode};
-use http_body_util::Full;
-use hyper::body::Incoming;
+use connectrpc_oidc::JwksVerifier;
 use hyper::server::conn::http1;
 use hyper_util::rt::TokioIo;
 use hyper_util::service::TowerToHyperService;
 use tokio::net::TcpListener;
-use tower::{Layer, ServiceExt, service_fn};
+use tower::ServiceExt;
 
 fn env_or(key: &str, default: &str) -> String {
     std::env::var(key).unwrap_or_else(|_| default.to_string())
-}
-
-/// Map the authenticated Session into a Cedar request. Roles ride in `context`
-/// (the principal is dynamic — first seen at request time), like remy-sport.
-fn extract(req: &http::Request<Incoming>) -> Option<CedarRequest> {
-    let session = req.extensions().get::<Session>()?;
-    let action = action_from_path(req.uri().path())?;
-    let principal: EntityUid = format!(r#"User::"{}""#, session.subject).parse().ok()?;
-    let resource: EntityUid = r#"Api::"main""#.parse().ok()?;
-    let context = Context::from_pairs([
-        (
-            "roles".to_string(),
-            RestrictedExpression::new_set(
-                session
-                    .roles
-                    .iter()
-                    .map(|r| RestrictedExpression::new_string(r.clone())),
-            ),
-        ),
-        (
-            "scopes".to_string(),
-            RestrictedExpression::new_set(
-                session
-                    .scopes
-                    .iter()
-                    .map(|s| RestrictedExpression::new_string(s.clone())),
-            ),
-        ),
-    ])
-    .ok()?;
-    Some(CedarRequest {
-        principal,
-        action,
-        resource,
-        context,
-    })
-}
-
-fn json(status: StatusCode, body: String) -> Response<ConnectRpcBody> {
-    Response::builder()
-        .status(status)
-        .header(http::header::CONTENT_TYPE, "application/json")
-        .body(ConnectRpcBody::Full(Full::new(Bytes::from(body))))
-        .unwrap()
 }
 
 #[tokio::main(flavor = "current_thread")]
@@ -87,49 +32,33 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let aud = env_or("RAUTHY_AUD", "worker-client");
     let port: u16 = env_or("PORT", "8090").parse().unwrap();
 
-    // Boot-time JWKS fetch (native path — ureq). The Worker swaps this one line
-    // for connectrpc_oidc::fetch::fetch_jwks (worker::Fetch).
+    // (1) platform-specific: native JWKS fetch.
     println!("fetching JWKS from {jwks_url} ...");
     let jwks = ureq::get(&jwks_url).call()?.into_string()?;
-    let verifier = Arc::new(
-        JwksVerifier::from_jwks_json(&issuer, Some(aud), &jwks).expect("build verifier"),
-    );
-    let authz = Arc::new(
-        CedarAuthorizer::from_str(
-            include_str!("../policies/demo.cedarschema"),
-            include_str!("../policies/demo.cedar"),
-        )
-        .expect("load policies"),
-    );
+    let verifier = Arc::new(JwksVerifier::from_jwks_json(&issuer, Some(aud), &jwks)?);
 
-    // The stub "RPC": if a request reaches it, OidcLayer verified the token and
-    // CedarLayer allowed the action. Echo the authorized session.
-    let stub = service_fn(|req: http::Request<Incoming>| async move {
-        let detail = match req.extensions().get::<Session>() {
-            Some(s) => format!("sub={} roles={:?}", s.subject, s.roles),
-            None => "anonymous (skip path)".to_string(),
-        };
-        Ok::<_, Infallible>(json(
-            StatusCode::OK,
-            format!(r#"{{"status":"ok","authorized":"{detail}"}}"#),
-        ))
-    });
+    // The shared app builds the entire oidc→cedar stack.
+    let svc = rauthy_cedar_app::make::<hyper::body::Incoming>(verifier);
 
-    // oidc (verify) → cedar (authorize) → stub. /healthz bypasses auth.
-    let svc = OidcLayer::new(verifier)
-        .skip_paths(["/healthz"])
-        .layer(CedarLayer::enforce(authz, extract).layer(stub));
-
+    // (2) platform-specific: hyper serve loop. The shared service's future is
+    // !Send (same as on the Worker), so drive it on a current-thread LocalSet
+    // with spawn_local rather than the Send-requiring tokio::task::spawn.
     let listener = TcpListener::bind(("127.0.0.1", port)).await?;
     println!("oidc→cedar server on http://127.0.0.1:{port}  (issuer {issuer})");
-    loop {
-        let (stream, _) = listener.accept().await?;
-        let io = TokioIo::new(stream);
-        let hyper_svc = TowerToHyperService::new(svc.clone().map_err(|e: Infallible| match e {}));
-        tokio::task::spawn(async move {
-            if let Err(e) = http1::Builder::new().serve_connection(io, hyper_svc).await {
-                eprintln!("conn error: {e}");
+    let local = tokio::task::LocalSet::new();
+    local
+        .run_until(async move {
+            loop {
+                let (stream, _) = listener.accept().await.expect("accept");
+                let io = TokioIo::new(stream);
+                let hyper_svc =
+                    TowerToHyperService::new(svc.clone().map_err(|e: Infallible| match e {}));
+                tokio::task::spawn_local(async move {
+                    if let Err(e) = http1::Builder::new().serve_connection(io, hyper_svc).await {
+                        eprintln!("conn error: {e}");
+                    }
+                });
             }
-        });
-    }
+        })
+        .await
 }

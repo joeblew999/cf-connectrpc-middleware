@@ -32,35 +32,24 @@ nu tests/run.nu        # or: mise run cedar:test (once wired)
 Expected: 7/7 pass — admin override, group read, write-scope gating, and the
 three denials (no write scope, non-admin delete, wrong group).
 
-## Run it & check the output
+## One app, two hosts (native + Cloudflare)
 
-### A. One-command full chain (real Rauthy token → ALLOW/DENY)
+The whole point: **one codebase, two runtimes.** All the logic — the
+`OidcLayer → CedarLayer` stack, the policies, the `Session→Cedar` extractor —
+lives in **[`app/`](app)** and is shared verbatim. The two hosts are thin:
 
-`e2e.nu` is the whole thing against the actual IdP, not a self-signed stand-in:
-it boots a throwaway Rauthy, bootstraps an OIDC client, mints a real **user**
-token (password grant), then runs `demo/` which does AuthN (`connectrpc-oidc`)
-→ AuthZ (`connectrpc-cedar`):
-
-```sh
-nu examples/rauthy-cedar/e2e.nu          # needs a local Docker daemon
 ```
+app/                shared: policies + extractor + the make() stack   (rlib, builds native AND wasm)
+├── server/         NATIVE host  — hyper  + ureq JWKS         → calls app::make()
+└── worker/         CF WORKER    — event  + worker::Fetch JWKS → calls app::make()
 ```
-AuthN ✓  sub=…  roles=["rauthy_admin", "admin"]  scopes=["openid","profile","groups"]
-AuthZ  action=read   → ALLOW   (any authenticated user)
-AuthZ  action=admin  → ALLOW   (token carries the admin role)
-DEMO OK — real Rauthy token verified AND authorized by Cedar.
-```
-The two demo policies live in [`demo/policies/`](demo/policies): `read` is
-allowed for any authenticated user; `admin` only when the token's `roles`
-contains `admin`. Strip the admin role off a user in the GUI (below) and
-`admin` flips to DENY — that's the output to check.
 
-### B. Run the middleware as a real HTTP server (native)
+Both hosts are ~40 lines and do only the two things that differ by platform:
+fetch the JWKS, and run the serve loop. The `app::make(verifier)` call that
+builds the entire middleware stack is **identical** in both. (`grep -n make`
+in `server/src/main.rs` and `worker/src/lib.rs` to see it.)
 
-`server/` hosts the **actual `oidc → cedar` tower stack** on hyper — the same
-two layers a Worker uses, behind a stub RPC. JWKS is fetched at boot (native
-`ureq`; the Worker swaps that one line for `worker::Fetch`). One command boots
-Rauthy, mints a token, runs the server, and asserts the middleware behaviour:
+### Native (hyper) — `serve.nu` boots Rauthy, mints a token, asserts:
 
 ```sh
 nu examples/rauthy-cedar/server/serve.nu
@@ -71,26 +60,28 @@ nu examples/rauthy-cedar/server/serve.nu
   ✓ Read token → allow            [200]   verified + Cedar allow
   ✓ Admin admin-role → allow      [200]   token carries `admin`
   ✓ Super no-superuser → deny     [403]   Cedar permission_denied
+==> SERVER E2E OK
 ```
 
-To poke it by hand, run the server pointed at a Rauthy and curl it:
+### Cloudflare Worker (`wrangler dev`) — the SAME `app`, on the edge:
+
 ```sh
-RAUTHY_ISSUER=http://localhost:8088/auth/v1/ \
-RAUTHY_JWKS_URL=http://localhost:8088/auth/v1/oidc/certs \
-  cargo run -p rauthy-cedar-server          # → http://127.0.0.1:8090
+# worker/wrangler.toml [vars] point at a running Rauthy (e.g. :8088)
+cd examples/rauthy-cedar/worker && wrangler dev          # → http://127.0.0.1:8787
 
-curl -s -H "Authorization: Bearer $TOKEN" -X POST localhost:8090/demo.v1.Api/Read
-# {"status":"ok","authorized":"sub=… roles=[\"rauthy_admin\",\"admin\"]"}
-curl -s -H "Authorization: Bearer $TOKEN" -X POST localhost:8090/demo.v1.Api/Super
-# {"code":"permission_denied","message":"cedar denied"}
+curl -s -H "Authorization: Bearer $TOKEN" -X POST 127.0.0.1:8787/demo.v1.Api/Read
+# {"status":"ok","authorized":"sub=KpT3… roles=[\"rauthy_admin\",\"admin\"]"}   200
+curl -s -H "Authorization: Bearer $TOKEN" -X POST 127.0.0.1:8787/demo.v1.Api/Super
+# {"code":"permission_denied","message":"cedar denied"}                          403
 ```
-The RPC path maps to a Cedar action automatically (`/demo.v1.Api/Read` →
-`Action::"demo.v1.Api.Read"`, via `action_from_path`), so policies in
-[`server/policies/`](server/policies) address routes by their proto path.
 
-### C. Use the Rauthy GUI
+**Verified on both** against a real Rauthy token (no-token 401 · Read/Admin 200 ·
+Super 403 — identical native and on `wrangler dev`/miniflare). The RPC path maps
+to a Cedar action automatically (`/demo.v1.Api/Read` → `Action::"demo.v1.Api.Read"`,
+via `action_from_path`), so the policies in [`app/policies/`](app/policies)
+address routes by their proto path.
 
-To poke the IdP yourself, run the standing instance (vm-uncloud recipe):
+### Use the Rauthy GUI to drive the decision
 
 ```sh
 mise run recipe:local rauthy             # in the vm-uncloud repo
@@ -103,51 +94,27 @@ mise run recipe:local rauthy             # in the vm-uncloud repo
 | OIDC discovery | http://localhost:8080/auth/v1/.well-known/openid-configuration |
 | JWKS | http://localhost:8080/auth/v1/oidc/certs |
 
-In the GUI you can add users, assign/remove **roles** and **groups**, and
-register OIDC clients. Those roles/groups are exactly what flow into the token →
-`Session` → Cedar `context`, so changing them in the GUI changes the AuthZ
-decision the demo prints.
+Add a user in the GUI, give/remove the `admin` role — those roles flow into the
+token → `Session` → Cedar `context`, so `Admin` flips between 200 and 403. That's
+the output to check.
 
-### What the harness bakes in (hard-won)
-- The distroless Rauthy image **panics without `/app/config.toml`** (seeded via a
-  shared volume / bind-mount).
+### Hard-won Rauthy details (baked into the harnesses)
+- The distroless Rauthy image **panics without `/app/config.toml`** (seed it).
 - A bootstrap client secret must be **exactly 64 chars** — validation uses
   `constant_time_eq_64`; bootstrap only checks `>=64`, so a longer one stores but
-  can never match (`"Invalid 'client_secret'"`).
+  can never match (`"Invalid 'client_secret'"`). Rauthy [PR #1599](https://github.com/sebadob/rauthy/pull/1599)
+  adds **generated** bootstrap secrets + `rauthy bootstrap get` — the cleaner,
+  reusable path (let Rauthy generate the secret, extract it) once it lands in a release.
 - `client_credentials` tokens have `sub: null` → use the **password grant** for a
   user token with `sub` + roles.
 
-### D. Run it as a Cloudflare Worker (`wrangler dev`)
-
-`worker/` is the **same `oidc → cedar` stack on the edge** — only the host
-differs from `server/`: `worker::event(fetch)` instead of hyper, and
-`worker::Fetch` instead of `ureq` for the boot JWKS load (`worker-jwks`
-feature). The middleware, policies, and extractor are byte-identical.
-
-```sh
-# point worker/wrangler.toml [vars] at a running Rauthy (e.g. :8088), then:
-cd examples/rauthy-cedar/worker && wrangler dev      # → http://127.0.0.1:8787
-curl -s -H "Authorization: Bearer $TOKEN" -X POST 127.0.0.1:8787/demo.v1.Api/Read   # 200 allow
-curl -s -H "Authorization: Bearer $TOKEN" -X POST 127.0.0.1:8787/demo.v1.Api/Super  # 403 deny
-```
-
-Verified under `wrangler dev` against a real Rauthy — same five outcomes as the
-native server (healthz 200, no-token 401, Read/Admin 200, Super 403). It compiles
-to `wasm32-unknown-unknown`; `RAUTHY_ISSUER`/`RAUTHY_JWKS_URL`/`RAUTHY_AUD` come
-from `[vars]`.
-
-> **Native and CF are the same crates.** `server/` (hyper) and `worker/`
-> (wrangler) wire the identical `OidcLayer → CedarLayer` stack and the same
-> `policies/`. Only the host + JWKS fetch differ — that's the whole point of the
-> middleware being `rlib + cdylib`.
-
 ## The two planes
 
-This example is the **edge plane**. The **server plane** — Rauthy itself —
-runs from `vm-uncloud/recipes/rauthy/`. The contract between them is three
-values: `RAUTHY_ISSUER`, `RAUTHY_JWKS_URL`, and the OIDC `client_id`. The
-example Worker (TODO, step 3) reads those, fetches JWKS at boot, and chains
-`OidcLayer` → `CedarLayer` over a `connectrpc-workers` handler.
+The **edge/native plane** is this `app` (run as `server/` or `worker/`). The
+**server plane** — Rauthy itself — runs from `vm-uncloud/recipes/rauthy/`. The
+contract between them is three values: `RAUTHY_ISSUER`, `RAUTHY_JWKS_URL`, and
+the OIDC `client_id`/secret (bootstrapped declaratively via a `bootstrap/` dir,
+the same way Cedar policies declare authz).
 
 ## Mapping reference (connectrpc-oidc → this schema)
 
