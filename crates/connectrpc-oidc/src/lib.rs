@@ -38,9 +38,10 @@
 //! See `examples/rauthy-cedar/` for the policy set this shape drives.
 
 mod claims;
+pub mod fetch;
 mod jwks;
 mod layer;
 
-pub use claims::{Claims, Session};
+pub use claims::{Aud, Claims, Session};
 pub use jwks::{JwksError, JwksVerifier};
 pub use layer::{OidcLayer, OidcService};

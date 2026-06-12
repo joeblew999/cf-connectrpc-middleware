@@ -45,6 +45,8 @@ pub enum JwksError {
     Expired,
     /// `iss` did not match the configured issuer.
     WrongIssuer,
+    /// `aud` did not contain the configured audience.
+    WrongAudience,
     /// Token header named an algorithm we don't support for that key type.
     UnsupportedAlg(String),
     /// Couldn't parse the JWKS document, or it had no usable keys.
@@ -84,8 +86,7 @@ enum VerifyKey {
 /// Verifies tokens against a cached JWKS for one issuer. Build once at boot.
 pub struct JwksVerifier {
     issuer: String,
-    /// Reserved for `aud` validation (not yet enforced — see verify()).
-    #[allow(dead_code)]
+    /// When set, every token's `aud` must contain this value.
     audience: Option<String>,
     keys: Vec<(String, VerifyKey)>,
 }
@@ -189,9 +190,15 @@ impl JwksVerifier {
         if (claims.exp as u64) <= now_unix {
             return Err(JwksError::Expired);
         }
-        // NOTE: `aud` validation is not yet enforced — Rauthy access-token `aud`
-        // shape (string vs array, client_id vs resource) is configured per
-        // client; wire it once the Worker's OIDC client is registered.
+        // `aud` is only enforced when an audience is configured (Rauthy's
+        // access-token `aud` is the client_id; leave `None` to skip, e.g. when
+        // the token is consumed by the same client that minted it).
+        if let Some(want) = &self.audience {
+            match &claims.aud {
+                Some(aud) if aud.contains(want) => {}
+                _ => return Err(JwksError::WrongAudience),
+            }
+        }
         Ok(claims)
     }
 }
@@ -249,7 +256,7 @@ mod tests {
         let header = B64.encode(br#"{"alg":"EdDSA","kid":"test-kid"}"#);
         let payload = B64.encode(
             format!(
-                r#"{{"sub":"alice","iss":"{iss}","exp":{exp},"email":"a@b.c","roles":["admin","editor"],"groups":["eng"],"scope":"openid write"}}"#
+                r#"{{"sub":"alice","iss":"{iss}","exp":{exp},"aud":"worker-client","email":"a@b.c","roles":["admin","editor"],"groups":["eng"],"scope":"openid write"}}"#
             )
             .as_bytes(),
         );
@@ -276,6 +283,23 @@ mod tests {
         let (token, jwks) = signed_token(ISS, 10_000);
         let v = JwksVerifier::from_jwks_json(ISS, None, &jwks).unwrap();
         assert!(matches!(v.verify(&token, 10_001), Err(JwksError::Expired)));
+    }
+
+    #[test]
+    fn audience_enforced_only_when_configured() {
+        let (token, jwks) = signed_token(ISS, 10_000);
+        // No audience configured → aud ignored, token passes.
+        let v = JwksVerifier::from_jwks_json(ISS, None, &jwks).unwrap();
+        assert!(v.verify(&token, 9_000).is_ok());
+        // Correct audience → passes.
+        let v = JwksVerifier::from_jwks_json(ISS, Some("worker-client".into()), &jwks).unwrap();
+        assert!(v.verify(&token, 9_000).is_ok());
+        // Wrong audience → rejected.
+        let v = JwksVerifier::from_jwks_json(ISS, Some("other-client".into()), &jwks).unwrap();
+        assert!(matches!(
+            v.verify(&token, 9_000),
+            Err(JwksError::WrongAudience)
+        ));
     }
 
     #[test]

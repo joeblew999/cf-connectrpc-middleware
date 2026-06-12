@@ -30,6 +30,27 @@ pub struct Claims {
     /// Space-delimited OIDC scopes, split into [`Session::scopes`].
     #[serde(default)]
     pub scope: String,
+    /// Audience — OIDC allows a single string OR an array. Validated against
+    /// the verifier's configured audience when one is set.
+    #[serde(default)]
+    pub aud: Option<Aud>,
+}
+
+/// `aud` is `string | string[]` per the JWT spec.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+pub enum Aud {
+    One(String),
+    Many(Vec<String>),
+}
+
+impl Aud {
+    pub fn contains(&self, want: &str) -> bool {
+        match self {
+            Aud::One(a) => a == want,
+            Aud::Many(v) => v.iter().any(|a| a == want),
+        }
+    }
 }
 
 /// What `OidcLayer` inserts into request extensions after a token validates.

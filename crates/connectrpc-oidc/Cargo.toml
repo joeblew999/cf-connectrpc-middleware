@@ -36,6 +36,9 @@ base64       = "0.22"
 sha2         = "0.10"
 rsa          = { version = "0.9", features = ["sha2"] }
 ed25519-dalek = "2"
+# Optional: the JWKS-fetch helper for the Worker target (worker::Fetch). Behind
+# the `worker-jwks` feature so native builds/tests don't pull the worker crate.
+worker       = { version = "0.8", optional = true }
 # wasm32-unknown-unknown has no OS RNG and no SystemTime clock; route getrandom
 # at the JS crypto API and read the clock via js-sys Date. No-op off-wasm.
 [target.'cfg(target_arch = "wasm32")'.dependencies]
@@ -47,7 +50,6 @@ tokio = { version = "1", features = ["macros", "rt"] }
 
 [features]
 default = []
-# When building inside a Cloudflare Worker, JWKS fetching uses worker::Fetch
-# instead of a native HTTP client. Off by default so native tests build
-# without the worker crate. The example Worker turns this on.
-worker-jwks = []
+# When building inside a Cloudflare Worker, enable the worker::Fetch-based JWKS
+# fetch helper. Off by default so native tests build without the worker crate.
+worker-jwks = ["dep:worker"]
