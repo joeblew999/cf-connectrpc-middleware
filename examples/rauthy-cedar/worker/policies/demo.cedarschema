@@ -1,0 +1,22 @@
+// Schema for the native server demo. Actions are the proto-path form that
+// connectrpc_cedar::action::action_from_path produces from the request path:
+//   POST /demo.v1.Api/Read  → Action::"demo.v1.Api.Read"
+// Roles ride in context (dynamic principal), as in remy-sport-policies.
+
+entity User;
+entity Api;
+
+action "demo.v1.Api.Read" appliesTo {
+  principal: User, resource: Api,
+  context: { roles: Set<String>, scopes: Set<String> }
+};
+
+action "demo.v1.Api.Admin" appliesTo {
+  principal: User, resource: Api,
+  context: { roles: Set<String>, scopes: Set<String> }
+};
+
+action "demo.v1.Api.Super" appliesTo {
+  principal: User, resource: Api,
+  context: { roles: Set<String>, scopes: Set<String> }
+};

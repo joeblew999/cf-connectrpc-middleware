@@ -1,0 +1,41 @@
+# Standalone workspace — a Cloudflare Worker (cdylib/wasm32) can't share the
+# parent workspace's [profile]/deps (wasm-only `worker` bits would conflict),
+# same reason .src/example-connectrpc-worker is its own workspace. The parent
+# Cargo.toml excludes this path.
+[workspace]
+
+[package]
+name = "rauthy-cedar-worker"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+worker        = { version = "0.8", features = ["http"] }
+worker-macros = { version = "0.8", features = ["http"] }
+
+# Published — for ConnectRpcBody/ConnectError. default-features off: zstd/streaming
+# pull C bits that don't build on wasm32-unknown-unknown.
+connectrpc = { version = "0.6", default-features = false }
+
+# The middleware under test, same crates as the native server. worker-jwks turns
+# on the worker::Fetch JWKS helper.
+connectrpc-oidc  = { path = "../../../crates/connectrpc-oidc", features = ["worker-jwks"] }
+connectrpc-cedar = { path = "../../../crates/connectrpc-cedar" }
+cedar-policy = "4"
+
+tower          = { version = "0.5", default-features = false }
+http           = "1"
+http-body-util = "0.1"
+bytes          = "1.5"
+# tokio sync::OnceCell for the per-isolate JWKS cache (no runtime needed).
+tokio = { version = "1", default-features = false, features = ["sync"] }
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1

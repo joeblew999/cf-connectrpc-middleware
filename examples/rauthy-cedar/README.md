@@ -117,11 +117,29 @@ decision the demo prints.
 - `client_credentials` tokens have `sub: null` → use the **password grant** for a
   user token with `sub` + roles.
 
-> Note on the CF Worker packaging: `demo/` runs the **same two crates**
-> (`connectrpc-oidc` + `connectrpc-cedar`) a Worker wires, as a native binary so
-> the decision is easy to watch. Packaging it as a deployable `wrangler dev`
-> Worker (in-Worker async JWKS fetch via the `worker-jwks` feature) is the
-> remaining step.
+### D. Run it as a Cloudflare Worker (`wrangler dev`)
+
+`worker/` is the **same `oidc → cedar` stack on the edge** — only the host
+differs from `server/`: `worker::event(fetch)` instead of hyper, and
+`worker::Fetch` instead of `ureq` for the boot JWKS load (`worker-jwks`
+feature). The middleware, policies, and extractor are byte-identical.
+
+```sh
+# point worker/wrangler.toml [vars] at a running Rauthy (e.g. :8088), then:
+cd examples/rauthy-cedar/worker && wrangler dev      # → http://127.0.0.1:8787
+curl -s -H "Authorization: Bearer $TOKEN" -X POST 127.0.0.1:8787/demo.v1.Api/Read   # 200 allow
+curl -s -H "Authorization: Bearer $TOKEN" -X POST 127.0.0.1:8787/demo.v1.Api/Super  # 403 deny
+```
+
+Verified under `wrangler dev` against a real Rauthy — same five outcomes as the
+native server (healthz 200, no-token 401, Read/Admin 200, Super 403). It compiles
+to `wasm32-unknown-unknown`; `RAUTHY_ISSUER`/`RAUTHY_JWKS_URL`/`RAUTHY_AUD` come
+from `[vars]`.
+
+> **Native and CF are the same crates.** `server/` (hyper) and `worker/`
+> (wrangler) wire the identical `OidcLayer → CedarLayer` stack and the same
+> `policies/`. Only the host + JWKS fetch differ — that's the whole point of the
+> middleware being `rlib + cdylib`.
 
 ## The two planes
 

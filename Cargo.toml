@@ -25,7 +25,7 @@ members = [
 # their Cargo.toml as workspace members. Explicit exclude keeps them
 # building independently (the example worker has its own [profile] and
 # wasm32-only deps that would conflict with workspace settings).
-exclude = [".src", "target", ".git"]
+exclude = [".src", "target", ".git", "examples/rauthy-cedar/worker"]
 
 # Shared metadata — every crate inherits via `workspace = true` in its own
 # [package]. Keeps version + rust-version + edition + repo URL aligned.
