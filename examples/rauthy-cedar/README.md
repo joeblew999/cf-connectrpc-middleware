@@ -32,6 +32,23 @@ nu tests/run.nu        # or: mise run cedar:test (once wired)
 Expected: 7/7 pass — admin override, group read, write-scope gating, and the
 three denials (no write scope, non-admin delete, wrong group).
 
+## Live end-to-end (real Rauthy token)
+
+`e2e.nu` proves the AuthN seam against the actual IdP, not a self-signed
+stand-in — it boots a throwaway Rauthy, bootstraps an OIDC client, mints a real
+**user** token via the password grant, and verifies it through `connectrpc-oidc`:
+
+```sh
+nu examples/rauthy-cedar/e2e.nu        # needs a local Docker daemon
+# → VERIFIED real Rauthy token → sub=… roles=[rauthy_admin, admin] groups=[admin] …
+```
+
+It drives the `#[ignore]`d `connectrpc-oidc` test `tests/live_rauthy.rs`. Two
+non-obvious things baked into the harness (both cost real debugging): the
+distroless Rauthy image panics without `/app/config.toml`, and a bootstrap
+client secret must be **exactly 64 chars** (validation uses `constant_time_eq_64`;
+bootstrap only checks `>=64`, so a longer one stores but never matches).
+
 ## The two planes
 
 This example is the **edge plane**. The **server plane** — Rauthy itself —
