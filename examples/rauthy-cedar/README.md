@@ -55,7 +55,40 @@ allowed for any authenticated user; `admin` only when the token's `roles`
 contains `admin`. Strip the admin role off a user in the GUI (below) and
 `admin` flips to DENY — that's the output to check.
 
-### B. Use the Rauthy GUI
+### B. Run the middleware as a real HTTP server (native)
+
+`server/` hosts the **actual `oidc → cedar` tower stack** on hyper — the same
+two layers a Worker uses, behind a stub RPC. JWKS is fetched at boot (native
+`ureq`; the Worker swaps that one line for `worker::Fetch`). One command boots
+Rauthy, mints a token, runs the server, and asserts the middleware behaviour:
+
+```sh
+nu examples/rauthy-cedar/server/serve.nu
+```
+```
+  ✓ healthz (no token)            [200]   skip path
+  ✓ Read no-token → AuthN deny    [401]   OidcLayer rejects (no token)
+  ✓ Read token → allow            [200]   verified + Cedar allow
+  ✓ Admin admin-role → allow      [200]   token carries `admin`
+  ✓ Super no-superuser → deny     [403]   Cedar permission_denied
+```
+
+To poke it by hand, run the server pointed at a Rauthy and curl it:
+```sh
+RAUTHY_ISSUER=http://localhost:8088/auth/v1/ \
+RAUTHY_JWKS_URL=http://localhost:8088/auth/v1/oidc/certs \
+  cargo run -p rauthy-cedar-server          # → http://127.0.0.1:8090
+
+curl -s -H "Authorization: Bearer $TOKEN" -X POST localhost:8090/demo.v1.Api/Read
+# {"status":"ok","authorized":"sub=… roles=[\"rauthy_admin\",\"admin\"]"}
+curl -s -H "Authorization: Bearer $TOKEN" -X POST localhost:8090/demo.v1.Api/Super
+# {"code":"permission_denied","message":"cedar denied"}
+```
+The RPC path maps to a Cedar action automatically (`/demo.v1.Api/Read` →
+`Action::"demo.v1.Api.Read"`, via `action_from_path`), so policies in
+[`server/policies/`](server/policies) address routes by their proto path.
+
+### C. Use the Rauthy GUI
 
 To poke the IdP yourself, run the standing instance (vm-uncloud recipe):
 

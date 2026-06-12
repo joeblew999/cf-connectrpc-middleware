@@ -1,0 +1,30 @@
+[package]
+name = "rauthy-cedar-server"
+description = "Native HTTP server running the oidc→cedar tower middleware against Rauthy."
+version.workspace      = true
+edition.workspace      = true
+rust-version.workspace = true
+publish = false
+
+[[bin]]
+name = "rauthy-cedar-server"
+path = "src/main.rs"
+
+[dependencies]
+# The middleware under test — same layers a Worker uses.
+connectrpc-oidc  = { path = "../../../crates/connectrpc-oidc" }
+connectrpc-cedar = { path = "../../../crates/connectrpc-cedar" }
+cedar-policy.workspace = true
+
+connectrpc       = { workspace = true }
+http             = { workspace = true }
+http-body-util   = { workspace = true }
+bytes            = { workspace = true }
+tower            = { workspace = true, features = ["util"] }
+
+# Native server host.
+tokio      = { version = "1", features = ["rt-multi-thread", "net", "macros"] }
+hyper      = { version = "1", features = ["server", "http1"] }
+hyper-util = { version = "0.1", features = ["server", "tokio", "service"] }
+# Blocking HTTP just for the one-time JWKS fetch at boot.
+ureq       = "2"
