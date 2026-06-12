@@ -1,0 +1,53 @@
+[package]
+name        = "connectrpc-oidc"
+description = "[generic] OIDC/JWT verification middleware (tower::Layer) for connectrpc. Validates Rauthy (or any OIDC) JWTs against JWKS and inserts a Session into request extensions for downstream layers (e.g. connectrpc-cedar)."
+version.workspace      = true
+edition.workspace      = true
+rust-version.workspace = true
+authors.workspace      = true
+license.workspace      = true
+repository.workspace   = true
+
+[lib]
+# Same shape as connectrpc-cedar: cdylib so a downstream Worker builds one
+# wasm artifact, rlib so it's usable as a normal Rust crate in tests.
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+connectrpc-tower-kit = { path = "../connectrpc-tower-kit", version = "0.1.0" }
+
+connectrpc.workspace       = true
+tower.workspace            = true
+http.workspace             = true
+http-body.workspace        = true
+http-body-util.workspace   = true
+bytes.workspace            = true
+tracing.workspace          = true
+pin-project-lite.workspace = true
+
+# JWT verification — PURE-RUST (RustCrypto) so it builds for BOTH native and
+# wasm32-unknown-unknown (the Worker target). jsonwebtoken was rejected: it's
+# ring-based and ring doesn't support wasm32-unknown-unknown. These crates do.
+# Rauthy's JWKS serves RSA (RS256/384/512) + Ed25519 (EdDSA) keys; we verify
+# against whichever the token header names.
+serde        = { version = "1", features = ["derive"] }
+serde_json   = "1"
+base64       = "0.22"
+sha2         = "0.10"
+rsa          = { version = "0.9", features = ["sha2"] }
+ed25519-dalek = "2"
+# wasm32-unknown-unknown has no OS RNG and no SystemTime clock; route getrandom
+# at the JS crypto API and read the clock via js-sys Date. No-op off-wasm.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom = { version = "0.2", features = ["js"] }
+js-sys = "0.3"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt"] }
+
+[features]
+default = []
+# When building inside a Cloudflare Worker, JWKS fetching uses worker::Fetch
+# instead of a native HTTP client. Off by default so native tests build
+# without the worker crate. The example Worker turns this on.
+worker-jwks = []

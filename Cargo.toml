@@ -11,6 +11,7 @@
 resolver = "2"
 members = [
     "crates/connectrpc-tower-kit",
+    "crates/connectrpc-oidc",
     "crates/connectrpc-cedar",
     "crates/connectrpc-cedar-interceptor",
     "crates/connectrpc-cf-tracing",
