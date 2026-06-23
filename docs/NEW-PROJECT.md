@@ -61,6 +61,35 @@ when { context.roles.contains("admin") };
 The RPC path maps to a Cedar action automatically via `action_from_path`
 (`/pkg.v1.Svc/Method` → `Action::"pkg.v1.Svc.Method"`).
 
+## Front-end — the login (both flows, via the kit)
+
+Install the client kit (JSR, no npm): `pnpm add @joeblew999/kumo-connectrpc-kit`.
+Wrap the app in `AuthProvider` with an `oidc` config; `useAuth()` then gives you
+both login flows + the shared session (it stamps the Rauthy JWT on every Connect
+request):
+
+```tsx
+<AuthProvider
+  whoami={() => authClient.whoami({})}
+  oidc={{
+    issuer: "https://id.<domain>/auth/v1/",   // local: http://localhost:8080/auth/v1/
+    clientId: "my-project",                    // the client you registered in step 1
+    redirectUri: `${location.origin}/callback`,
+  }}
+>
+```
+
+- **Passkeys / MFA / social** → `useAuth().loginWithRedirect()` (authorization_code
+  + PKCE — the user authenticates on Rauthy's hosted page, the only flow that can
+  do these). Add a `/callback` route that calls `useAuth().completeRedirect()`, and
+  **register that redirect URI** in your client's `redirect_uris`
+  (step 1 / `vm-uncloud/recipes/rauthy/bootstrap.nuon`).
+- **Email + password, in-app/branded** → `useAuth().loginWithPassword(email, pw)`.
+
+Both mint the *same* JWT; the server middleware (step 2) verifies it identically —
+it never sees which flow you used. Recommended UX: one Kumo login card with the
+email/password fields AND a "Sign in with passkey / SSO" button (`loginWithRedirect`).
+
 ## 4. (If the project sends auth email) — nothing to do
 
 Rauthy's transactional email already routes through the shared bridge →
