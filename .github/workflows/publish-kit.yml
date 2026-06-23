@@ -24,5 +24,7 @@ jobs:
         with:
           node-version: 22
       - run: pnpm install
+      - run: pnpm run typecheck # gate: a broken kit can't publish
+      - run: pnpm run test
       - run: pnpm run build
       - run: pnpm dlx jsr publish
