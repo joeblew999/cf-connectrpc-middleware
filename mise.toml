@@ -878,3 +878,20 @@ if ($env.usage_output | is-empty) {
   print $"wrote ($env.usage_output)"
 }
 """
+
+# ── stack:* / deploy:* — the auth-stack orchestration (folded in from the old
+# `iam` repo, 2026-06-23). This repo IS the shared foundation for all projects:
+# the crates + the kit + the examples + how to run the whole stack + how to
+# adopt it (docs/NEW-PROJECT.md, docs/AUTH-STACK.md). vm-uncloud stays the
+# Rauthy IdP runner (infra SSOT); these just sequence it with this repo's
+# rauthy-cedar example.
+
+[tasks."stack:local"]
+description = "Whole Rauthy+Cedar stack UP locally (Docker + ../vm-uncloud) — drives a REAL token through oidc→cedar, leaves Rauthy's GUI up. `-- --down` to tear down."
+shell = "nu -c"
+run = "nu scripts/stack-local.nu"
+
+[tasks."deploy:stack"]
+description = "Deploy the whole Rauthy+Cedar stack across vm-uncloud(Hetzner)+saasmail(CF). DRY by default; `-- --execute` spends real money. Plan in deploy-stack.nuon."
+shell = "nu -c"
+run = "nu scripts/deploy-stack.nu"

@@ -26,6 +26,20 @@ The crates are the goal. The deployed Worker + React frontend
 under `.src/example-multitenant-worker/` exists as the reference shape
 each layer must compose with cleanly.
 
+> ### 🔑 The auth stack, end to end — [docs/AUTH-STACK.md](./docs/AUTH-STACK.md)
+>
+> This repo is the **one shared foundation for every project's auth**:
+> the `connectrpc-oidc` + `connectrpc-cedar` crates, the
+> [`kumo-connectrpc-kit`](./packages/kumo-connectrpc-kit) client, the
+> `rauthy-cedar` example, **how to run the whole thing locally**
+> (`mise run stack:local` — Rauthy on Docker + a real token driven
+> through oidc→cedar, no spend), how to deploy it (`mise run deploy:stack`),
+> and **how to add auth to a new project**
+> ([docs/NEW-PROJECT.md](./docs/NEW-PROJECT.md)). Rauthy itself runs from
+> [`vm-uncloud`](https://github.com/joeblew999/vm-uncloud)'s `recipes/rauthy/`
+> (the infra SSOT); this repo orchestrates it. *(Folded in from the old
+> standalone `iam` repo, 2026-06-23.)*
+
 ## Crates in this workspace
 
 CF binding status is part of every crate's identity — what the user

@@ -1,0 +1,36 @@
+# THE MAP — what deploys where for the Rauthy + Cedar auth stack. Edit this, not
+# the orchestrator (scripts/deploy-stack.nu). This file is the answer to "what
+# uses what": every deploy target, its repo, its command, and the shared values.
+#
+# Repo paths are relative to this repo (siblings under .../joeblew999/).
+{
+  domain: "amplifycms.com"
+
+  # The ONE cross-repo secret = the contract (fnox keychain item name). The
+  # vm-uncloud rauthy recipe puts it in the bridge webhook as `?key=`; saasmail
+  # reads it as RAUTHY_WEBHOOK_SECRET. Generated once, stable, single source.
+  shared_secret_item: "VMU_RAUTHY_WEBHOOK_SECRET"
+
+  # PHASE 1 — server plane (Hetzner): Rauthy IdP + email bridge. Runs via the
+  # vm-uncloud repo (the deploy substrate); this repo just sequences it.
+  server: {
+    path: "../vm-uncloud"
+    up: "mise run up"               # provision the cluster node (€ — real)
+    recipe: "mise run recipe rauthy"  # Rauthy + bridge → id.<domain>
+  }
+
+  # PHASE 3 — edge plane (Cloudflare). Each repo OWNS its own deploy; this
+  # orchestrator invokes it with the shared config/secrets.
+  edge: [
+    {
+      name: "saasmail"
+      path: "../saasmail"
+      deploy: "yarn deploy"
+      # Pushed via `wrangler secret put` from the shared fnox item above.
+      wrangler_secrets: ["RAUTHY_WEBHOOK_SECRET"]
+    }
+    # NOTE: your per-project app Worker (the one that uses the oidc+cedar crates)
+    # deploys from ITS OWN repo — add it here when you wire a real project. The
+    # cf-connectrpc-middleware `rauthy-cedar/worker` is a DEMO, not a prod target.
+  ]
+}
