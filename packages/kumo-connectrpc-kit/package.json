@@ -1,0 +1,34 @@
+{
+  "name": "kumo-connectrpc-kit",
+  "version": "0.0.1",
+  "type": "module",
+  "private": true,
+  "description": "Shared Kumo + ConnectRPC chrome (transport+auth, AppShell, ThemeToggle, \u2026). Published to JSR.",
+  "peerDependencies": {
+    "react": ">=18",
+    "react-dom": ">=18",
+    "@cloudflare/kumo": ">=2",
+    "@connectrpc/connect": ">=2",
+    "@connectrpc/connect-web": ">=2",
+    "@phosphor-icons/react": ">=2"
+  },
+  "devDependencies": {
+    "@cloudflare/kumo": "^2.3.0",
+    "@connectrpc/connect": "^2.0.0",
+    "@connectrpc/connect-web": "^2.0.0",
+    "@types/react": "^19.0.0",
+    "react": "^19.0.0",
+    "typescript": "^5.6.0",
+    "@phosphor-icons/react": "^2.1.10"
+  },
+  "scripts": {
+    "build": "rm -rf dist && tsc"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "types": "./dist/index.d.ts"
+}

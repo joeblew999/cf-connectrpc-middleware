@@ -26,3 +26,8 @@ undefined/
 
 # OS
 .DS_Store
+
+# kumo-connectrpc-kit (TS package)
+packages/**/node_modules
+packages/**/dist
+packages/**/*.tsbuildinfo

@@ -1,0 +1,25 @@
+name: Publish to JSR
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  id-token: write # required for JSR OIDC publishing (no token needed)
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.15.0 # match the lockfile's pnpm; newer "latest" enforces a release-age policy
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install
+      - run: pnpm run build
+      - run: pnpm dlx jsr publish

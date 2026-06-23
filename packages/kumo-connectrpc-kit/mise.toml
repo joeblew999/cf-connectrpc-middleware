@@ -1,0 +1,32 @@
+# kumo-connectrpc-kit — shared Kumo + ConnectRPC chrome, published to JSR.
+# JSR doesn't transpile JSX (.tsx), so we PRE-BUILD to dist/ (tsc) and publish
+# the compiled .js + .d.ts. Consumers: `pnpm add @joeblew999/kumo-connectrpc-kit`.
+
+[tools]
+node = "22"
+"npm:pnpm" = "latest"
+
+[tasks."install"]
+description = "Install peer/dev deps (react, @cloudflare/kumo, @connectrpc/*)"
+run = "pnpm install"
+
+[tasks."typecheck"]
+description = "tsc --noEmit"
+depends = ["install"]
+run = "pnpm exec tsc --noEmit"
+
+[tasks."build"]
+description = "Compile src/*.{ts,tsx} → dist/*.js + *.d.ts (JSX compiled; JSR won't)"
+depends = ["install"]
+run = "rm -rf dist && pnpm exec tsc"
+
+# --- JSR publishing (compiled output) ---
+[tasks."jsr:check"]
+description = "JSR dry-run on the built dist/ (slow-types, packaging) — no publish"
+depends = ["build"]
+run = "pnpm dlx jsr publish --dry-run --allow-dirty"
+
+[tasks."jsr:publish"]
+description = "Publish to JSR. Normally CI does this on push (OIDC); this is the manual path."
+depends = ["build"]
+run = "pnpm dlx jsr publish"

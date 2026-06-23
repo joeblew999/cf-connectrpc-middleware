@@ -1,0 +1,28 @@
+name: Publish kumo-connectrpc-kit to JSR
+
+on:
+  push:
+    branches: [main]
+    paths: ["packages/kumo-connectrpc-kit/**"]
+
+permissions:
+  contents: read
+  id-token: write # JSR OIDC (tokenless) — needs the JSR package linked to THIS repo
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/kumo-connectrpc-kit
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.15.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: pnpm install
+      - run: pnpm run build
+      - run: pnpm dlx jsr publish
