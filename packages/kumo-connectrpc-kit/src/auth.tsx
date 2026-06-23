@@ -9,6 +9,12 @@ import {
 } from "react";
 import type { ReactNode } from "react";
 import { setAuthToken } from "./client.js";
+import {
+  handleRedirectCallback,
+  loginWithPassword as oidcLoginWithPassword,
+  loginWithRedirect as oidcLoginWithRedirect,
+  type OidcConfig,
+} from "./oidc.js";
 
 /**
  * The shared auth/session for every ConnectRPC+Kumo app.
@@ -31,6 +37,22 @@ export interface AuthContextValue<W> {
   setSession: (token: string, whoami: W) => void;
   refreshWhoami: () => Promise<void>;
   logout: () => void;
+  /**
+   * Begin authorization_code + PKCE — redirect to Rauthy's hosted login. The
+   * ONLY flow that supports passkeys / MFA / social (they need the interactive
+   * page). Requires `oidc` on the provider. Resolves as the page navigates away.
+   */
+  loginWithRedirect: () => Promise<void>;
+  /**
+   * ROPC password grant — the in-app/branded path (email+password only, no
+   * passkeys/MFA). On success the session is set (whoami fetched). Requires `oidc`.
+   */
+  loginWithPassword: (username: string, password: string) => Promise<void>;
+  /**
+   * Complete the PKCE flow on your redirect-callback route: exchange the code,
+   * fetch whoami, set the session. Requires `oidc`.
+   */
+  completeRedirect: () => Promise<void>;
 }
 
 interface Stored<W> {
@@ -45,12 +67,22 @@ export interface AuthProviderProps<W> {
   whoami: () => Promise<W | null>;
   /** localStorage key for the persisted session. */
   storageKey?: string;
+  /**
+   * Rauthy OIDC config. When set, enables `loginWithRedirect` (PKCE — passkeys/
+   * MFA/social) + `loginWithPassword` + `completeRedirect`. Omit it if your app
+   * obtains the token elsewhere and only uses `setSession`.
+   */
+  oidc?: OidcConfig;
+  /** Client secret for the password grant when using a confidential client (a public SPA client omits it). */
+  passwordClientSecret?: string;
   children: ReactNode;
 }
 
 export function AuthProvider<W>({
   whoami,
   storageKey = "kit.session",
+  oidc,
+  passwordClientSecret,
   children,
 }: AuthProviderProps<W>): ReactNode {
   const [state, setState] = useState<AuthState<W>>({ status: "loading" });
@@ -98,6 +130,45 @@ export function AuthProvider<W>({
     if (who) applySession(t, who);
   }, [whoami, applySession]);
 
+  // After a token arrives (any flow): stamp it, fetch whoami, set the session.
+  const finishLogin = useCallback(
+    async (token: string): Promise<void> => {
+      setAuthToken(token);
+      const who = await whoami();
+      if (!who) {
+        setAuthToken(tokenRef.current);
+        throw new Error("login succeeded but whoami failed");
+      }
+      applySession(token, who);
+    },
+    [whoami, applySession],
+  );
+
+  const requireOidc = useCallback((): OidcConfig => {
+    if (!oidc) {
+      throw new Error("AuthProvider: pass `oidc` to use loginWithRedirect/loginWithPassword");
+    }
+    return oidc;
+  }, [oidc]);
+
+  const loginWithRedirect = useCallback(
+    (): Promise<void> => oidcLoginWithRedirect(requireOidc()),
+    [requireOidc],
+  );
+
+  const loginWithPassword = useCallback(
+    async (username: string, password: string): Promise<void> => {
+      const tok = await oidcLoginWithPassword(requireOidc(), username, password, passwordClientSecret);
+      await finishLogin(tok.access_token);
+    },
+    [requireOidc, passwordClientSecret, finishLogin],
+  );
+
+  const completeRedirect = useCallback(async (): Promise<void> => {
+    const tok = await handleRedirectCallback(requireOidc());
+    await finishLogin(tok.access_token);
+  }, [requireOidc, finishLogin]);
+
   useEffect(() => {
     const stored = readStored();
     if (!stored) {
@@ -122,8 +193,16 @@ export function AuthProvider<W>({
   }, [readStored, whoami, applySession, logout]);
 
   const value = useMemo<AuthContextValue<W>>(
-    () => ({ state, setSession: applySession, refreshWhoami, logout }),
-    [state, applySession, refreshWhoami, logout],
+    () => ({
+      state,
+      setSession: applySession,
+      refreshWhoami,
+      logout,
+      loginWithRedirect,
+      loginWithPassword,
+      completeRedirect,
+    }),
+    [state, applySession, refreshWhoami, logout, loginWithRedirect, loginWithPassword, completeRedirect],
   );
 
   return (

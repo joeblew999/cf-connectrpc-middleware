@@ -18,6 +18,15 @@ pnpm add @joeblew999/kumo-connectrpc-kit
 - **`AuthProvider` / `useAuth`** — the one shared session: a Rauthy JWT + `whoami`,
   persisted in localStorage, generic over the whoami type. The app passes its
   codegen'd `whoami()`; the kit owns storage/refresh/logout + token-stamping.
+- **Two login flows, one token** (pass `oidc` to `AuthProvider`) — `useAuth()` exposes:
+  - `loginWithRedirect()` — authorization_code + PKCE → Rauthy's hosted page. The
+    **only** flow that does **passkeys / MFA / social** (they need the interactive
+    page); `completeRedirect()` finishes it on your `/callback` route.
+  - `loginWithPassword(email, pw)` — ROPC password grant, fully in-app/branded
+    (email+password only). Both mint the identical JWT; the server middleware
+    verifies it the same way (it never sees the flow). The standalone
+    `loginWithRedirect` / `handleRedirectCallback` / `loginWithPassword` are also
+    exported for non-React use.
 - **`AppShell`** — Kumo sidebar shell; nav + brand as props, sign-out via the shared
   `useAuth().logout()`.
 - **`PageLoading`, `AuthHero`** — standalone Kumo chrome components.
