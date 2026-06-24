@@ -42,6 +42,6 @@ pub mod fetch;
 mod jwks;
 mod layer;
 
-pub use claims::{Aud, Claims, Session};
+pub use claims::{session_from_claims, Aud, Claims, Session};
 pub use jwks::{JwksError, JwksVerifier};
 pub use layer::{OidcLayer, OidcService};

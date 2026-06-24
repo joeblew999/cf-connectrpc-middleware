@@ -245,7 +245,7 @@ fn verify_sig(key: &VerifyKey, alg: &str, msg: &[u8], sig: &[u8]) -> Result<(), 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::claims::Session;
+    use crate::claims::session_from_claims;
     use base64::Engine;
     use base64::engine::general_purpose::URL_SAFE_NO_PAD as B64;
     use ed25519_dalek::{Signer, SigningKey};
@@ -279,7 +279,7 @@ mod tests {
         let claims = v.verify(&token, 9_000).expect("valid token must verify");
         assert_eq!(claims.sub, "alice");
 
-        let s = Session::from(claims);
+        let s = session_from_claims(claims);
         assert_eq!(s.roles, vec!["admin", "editor"]);
         assert_eq!(s.groups, vec!["eng"]);
         assert_eq!(s.scopes, vec!["openid", "write"]); // space-split

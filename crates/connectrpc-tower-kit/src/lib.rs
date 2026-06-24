@@ -48,7 +48,9 @@ pub mod rollout;
 pub mod response;
 pub mod future;
 pub mod ext;
+pub mod session;
 
 pub use rollout::{Rollout, log_shadow};
 pub use response::deny_response;
 pub use future::ShortCircuitFuture;
+pub use session::Session;

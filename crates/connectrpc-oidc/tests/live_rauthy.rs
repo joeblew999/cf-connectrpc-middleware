@@ -10,7 +10,7 @@
 //!   cargo test -p connectrpc-oidc --test live_rauthy -- --ignored --nocapture
 //! ```
 
-use connectrpc_oidc::{JwksVerifier, Session};
+use connectrpc_oidc::{session_from_claims, JwksVerifier};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[test]
@@ -28,7 +28,7 @@ fn verifies_real_rauthy_user_token() {
         .verify(token.trim(), now)
         .expect("a real Rauthy token must verify");
 
-    let session = Session::from(claims);
+    let session = session_from_claims(claims);
     assert!(!session.subject.is_empty(), "sub must be present");
     assert!(
         session.roles.contains(&"rauthy_admin".to_string()),

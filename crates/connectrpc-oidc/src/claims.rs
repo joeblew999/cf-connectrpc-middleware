@@ -53,26 +53,21 @@ impl Aud {
     }
 }
 
-/// What `OidcLayer` inserts into request extensions after a token validates.
-/// This is the AuthN→AuthZ handoff: `connectrpc-cedar`'s extractor consumes
-/// it. Keep it transport- and Cedar-agnostic so other authorizers can reuse it.
-#[derive(Debug, Clone)]
-pub struct Session {
-    pub subject: String,
-    pub email: Option<String>,
-    pub roles: Vec<String>,
-    pub groups: Vec<String>,
-    pub scopes: Vec<String>,
-}
+// `Session` (what `OidcLayer` inserts into request extensions) is the shared
+// AuthN→AuthZ contract — it now lives in the neutral `connectrpc-tower-kit` so
+// non-OIDC auth crates (`connectrpc-session`, …) insert one without depending
+// on this Rauthy crate. Re-exported here for back-compat.
+pub use connectrpc_tower_kit::Session;
 
-impl From<Claims> for Session {
-    fn from(c: Claims) -> Self {
-        Session {
-            subject: c.sub,
-            email: c.email,
-            roles: c.roles,
-            groups: c.groups,
-            scopes: c.scope.split_whitespace().map(str::to_owned).collect(),
-        }
+/// Map decoded Rauthy [`Claims`] into a [`Session`]. A free function rather than
+/// `impl From<Claims> for Session` because `Session` is now a foreign type (in
+/// tower-kit) and the orphan rule forbids the impl.
+pub fn session_from_claims(c: Claims) -> Session {
+    Session {
+        subject: c.sub,
+        email: c.email,
+        roles: c.roles,
+        groups: c.groups,
+        scopes: c.scope.split_whitespace().map(str::to_owned).collect(),
     }
 }

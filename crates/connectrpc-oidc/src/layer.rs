@@ -27,7 +27,7 @@ use tracing::warn;
 
 use connectrpc_tower_kit::{ShortCircuitFuture, deny_response};
 
-use crate::claims::Session;
+use crate::claims::session_from_claims;
 use crate::jwks::JwksVerifier;
 
 /// Current unix time in seconds. Split by target because
@@ -138,7 +138,7 @@ where
             Ok(claims) => {
                 // The AuthN→AuthZ handoff: downstream (connectrpc-cedar's
                 // extractor) reads this out of extensions.
-                req.extensions_mut().insert(Session::from(claims));
+                req.extensions_mut().insert(session_from_claims(claims));
                 ShortCircuitFuture::pass(self.inner.call(req))
             }
             Err(err) => {

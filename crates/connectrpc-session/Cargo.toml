@@ -1,0 +1,21 @@
+[package]
+name        = "connectrpc-session"
+description = "[generic] Non-OIDC AuthN middleware for connectrpc — the sibling of connectrpc-oidc for projects that DON'T use Rauthy. A tower::Layer that verifies an opaque bearer token via a caller-supplied closure (session lookup / API key / macaroon / …) and inserts the shared Session. Pairs with connectrpc-cedar / connectrpc-guard exactly like connectrpc-oidc does."
+version.workspace      = true
+edition.workspace      = true
+rust-version.workspace = true
+authors.workspace      = true
+license.workspace      = true
+repository.workspace   = true
+
+[lib]
+# cdylib so a downstream Worker builds one wasm artifact, rlib for normal use.
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+connectrpc-tower-kit = { path = "../connectrpc-tower-kit", version = "0.1.0" }
+
+connectrpc.workspace = true
+http.workspace       = true
+tower.workspace      = true
+tracing.workspace    = true
