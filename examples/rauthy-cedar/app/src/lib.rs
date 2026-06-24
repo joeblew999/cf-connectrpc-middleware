@@ -1,72 +1,42 @@
 //! The shared `oidc → cedar` application — host-agnostic.
 //!
-//! This crate holds EVERYTHING that's the same whether you run native or on
-//! Cloudflare: the policies, the Session→Cedar extractor, the stub RPC, and the
-//! composed tower stack. The two hosts (`../server`, `../worker`) each do only
-//! the two things that genuinely differ by platform:
-//!
-//!   1. fetch the JWKS (native: `ureq`; CF: `worker::Fetch`) → build a verifier
-//!   2. run the service ( native: `hyper`; CF: `worker::event(fetch)` )
-//!
-//! Everything else — including the `OidcLayer → CedarLayer → stub` composition —
-//! comes from [`make`]. That's the ConnectRPC promise: one app, both runtimes.
+//! The `OidcLayer → CedarLayer` composition AND the Session→Cedar mapping now
+//! live in [`connectrpc_guard`] — this app supplies only the two things that
+//! are genuinely its own: the Cedar **policy files** and the (stub) RPC. The
+//! two hosts (`../server`, `../worker`) each still do the platform-specific
+//! pair: fetch the JWKS (native `ureq` / CF `worker::Fetch`) → run the service
+//! (native `hyper` / CF `worker::event(fetch)`). That's the ConnectRPC promise:
+//! one app, both runtimes — and now the guard itself is shared, not copied.
 
 use std::convert::Infallible;
 use std::sync::{Arc, OnceLock};
 
 use bytes::Bytes;
-use cedar_policy::{Context, EntityUid, RestrictedExpression};
-use connectrpc_cedar::{CedarAuthorizer, CedarLayer, CedarRequest, action::action_from_path};
-use connectrpc_oidc::{JwksVerifier, OidcLayer, Session};
-use http::{Response, StatusCode, header::CONTENT_TYPE};
+use connectrpc_guard::{guard, load_authorizer, CedarAuthorizer, JwksVerifier};
+use connectrpc_oidc::Session;
+use http::{header::CONTENT_TYPE, Response, StatusCode};
 use http_body_util::Full;
-use tower::{Layer, Service, service_fn};
+use tower::{service_fn, Service};
 
 // Re-export so hosts don't need a direct connectrpc dep just to name the type.
 pub use connectrpc::ConnectRpcBody;
 
-/// The Cedar authorizer, loaded once from the bundled policies.
+/// The Cedar authorizer, loaded once from the bundled demo policies.
 pub fn authorizer() -> Arc<CedarAuthorizer> {
     static A: OnceLock<Arc<CedarAuthorizer>> = OnceLock::new();
     A.get_or_init(|| {
-        Arc::new(
-            CedarAuthorizer::from_str(
-                include_str!("../policies/demo.cedarschema"),
-                include_str!("../policies/demo.cedar"),
-            )
-            .expect("bundled policies must load"),
+        load_authorizer(
+            include_str!("../policies/demo.cedarschema"),
+            include_str!("../policies/demo.cedar"),
         )
+        .expect("bundled demo policies must load")
     })
     .clone()
 }
 
-/// Map the authenticated [`Session`] into a Cedar request. Roles ride in
-/// `context` (the principal is dynamic — first seen at request time).
-pub fn extract<B>(req: &http::Request<B>) -> Option<CedarRequest> {
-    let session = req.extensions().get::<Session>()?;
-    let action = action_from_path(req.uri().path())?;
-    let principal: EntityUid = format!(r#"User::"{}""#, session.subject).parse().ok()?;
-    let resource: EntityUid = r#"Api::"main""#.parse().ok()?;
-    let context = Context::from_pairs([
-        ("roles".to_string(), set(&session.roles)),
-        ("scopes".to_string(), set(&session.scopes)),
-    ])
-    .ok()?;
-    Some(CedarRequest {
-        principal,
-        action,
-        resource,
-        context,
-    })
-}
-
-fn set(items: &[String]) -> RestrictedExpression {
-    RestrictedExpression::new_set(items.iter().map(|s| RestrictedExpression::new_string(s.clone())))
-}
-
-/// Build the full `OidcLayer → CedarLayer → stub` service for a given verifier.
-/// Generic over the request body `B`, so the native (hyper `Incoming`) and CF
-/// (`worker::Body`) hosts call the EXACT same constructor.
+/// Build the full guarded service for a verifier. Generic over the body `B`, so
+/// native (`hyper::body::Incoming`) and CF (`worker::Body`) call the identical
+/// constructor — the guard composition comes from `connectrpc-guard`.
 pub fn make<B>(
     verifier: Arc<JwksVerifier>,
 ) -> impl Service<http::Request<B>, Response = Response<ConnectRpcBody>, Error = Infallible> + Clone
@@ -91,7 +61,5 @@ where
         )
     });
 
-    OidcLayer::new(verifier)
-        .skip_paths(["/healthz"])
-        .layer(CedarLayer::enforce(authorizer(), extract::<B>).layer(stub))
+    guard(verifier, authorizer(), "main", &["/healthz"], stub)
 }

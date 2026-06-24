@@ -1,0 +1,22 @@
+[package]
+name        = "connectrpc-guard"
+description = "The Rauthy-OIDC → Cedar guard for ConnectRPC: compose connectrpc-oidc (verify the JWT) → connectrpc-cedar (enforce policy) around a service, plus the generic Session→Cedar extractor and Cedar loading. A project brings its policy files + services and gets auth/authz for free — no hand-written guard."
+version.workspace      = true
+edition.workspace      = true
+rust-version.workspace = true
+authors.workspace      = true
+license.workspace      = true
+repository.workspace   = true
+
+[lib]
+# cdylib so a downstream Worker builds one wasm artifact, rlib for normal use.
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+connectrpc-oidc  = { path = "../connectrpc-oidc", version = "0.1.0" }
+connectrpc-cedar = { path = "../connectrpc-cedar", version = "0.1.0" }
+
+connectrpc.workspace   = true
+cedar-policy.workspace = true
+tower.workspace        = true
+http.workspace         = true

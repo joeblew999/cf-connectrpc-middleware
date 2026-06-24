@@ -13,6 +13,7 @@ members = [
     "crates/connectrpc-tower-kit",
     "crates/connectrpc-oidc",
     "crates/connectrpc-cedar",
+    "crates/connectrpc-guard",
     "crates/connectrpc-cedar-interceptor",
     "crates/connectrpc-cf-tracing",
     "crates/connectrpc-cf-rate-limit",

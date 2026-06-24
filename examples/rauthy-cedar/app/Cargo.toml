@@ -12,9 +12,10 @@ publish = false
 crate-type = ["rlib"]
 
 [dependencies]
+# The guard composition + Session→Cedar extractor + Cedar loading are now
+# shared (no per-app copy). The app keeps only its policies + the stub RPC.
+connectrpc-guard = { path = "../../../crates/connectrpc-guard" }
 connectrpc-oidc  = { path = "../../../crates/connectrpc-oidc" }
-connectrpc-cedar = { path = "../../../crates/connectrpc-cedar" }
-cedar-policy.workspace = true
 
 connectrpc     = { workspace = true }
 http           = { workspace = true }
