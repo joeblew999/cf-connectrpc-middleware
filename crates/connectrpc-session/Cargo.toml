@@ -19,3 +19,9 @@ connectrpc.workspace = true
 http.workspace       = true
 tower.workspace      = true
 tracing.workspace    = true
+
+[dev-dependencies]
+tokio          = { version = "1", features = ["rt", "macros"] }
+http-body-util = { workspace = true }
+bytes          = { workspace = true }
+tower          = { workspace = true, features = ["util"] }

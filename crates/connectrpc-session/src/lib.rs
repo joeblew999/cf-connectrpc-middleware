@@ -180,3 +180,71 @@ where
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bytes::Bytes;
+    use http_body_util::Full;
+    use std::convert::Infallible;
+    use tower::{service_fn, ServiceExt};
+
+    // Inner service: 200 if a Session reached request extensions, 250 if not.
+    // So the response status alone proves whether the layer inserted a Session.
+    fn inner(
+    ) -> impl Service<http::Request<()>, Response = Response<ConnectRpcBody>, Error = Infallible> + Clone
+    {
+        service_fn(|req: http::Request<()>| async move {
+            let status = if req.extensions().get::<Session>().is_some() { 200 } else { 250 };
+            Ok::<_, Infallible>(
+                Response::builder()
+                    .status(status)
+                    .body(ConnectRpcBody::Full(Full::new(Bytes::new())))
+                    .unwrap(),
+            )
+        })
+    }
+
+    fn req(bearer: Option<&str>) -> http::Request<()> {
+        let mut b = http::Request::builder().uri("/svc/M");
+        if let Some(t) = bearer {
+            b = b.header(http::header::AUTHORIZATION, format!("Bearer {t}"));
+        }
+        b.body(()).unwrap()
+    }
+
+    // The project's auth: "good" → a session; anything else → reject.
+    fn verify(tok: &str) -> Option<Session> {
+        (tok == "good").then(|| Session { subject: "u1".into(), ..Default::default() })
+    }
+
+    async fn status<S>(svc: S, r: http::Request<()>) -> u16
+    where
+        S: Service<http::Request<()>, Response = Response<ConnectRpcBody>, Error = Infallible>,
+    {
+        svc.oneshot(r).await.unwrap().status().as_u16()
+    }
+
+    #[tokio::test]
+    async fn enforce_rejects_missing_and_invalid() {
+        let svc = SessionLayer::new(verify).layer(inner());
+        assert_eq!(status(svc.clone(), req(None)).await, 401);
+        assert_eq!(status(svc, req(Some("nope"))).await, 401);
+    }
+
+    #[tokio::test]
+    async fn enforce_admits_valid_and_inserts_session() {
+        let svc = SessionLayer::new(verify).layer(inner());
+        // 200 = the inner service saw the Session the layer inserted.
+        assert_eq!(status(svc, req(Some("good"))).await, 200);
+    }
+
+    #[tokio::test]
+    async fn decode_passes_through_unauthenticated_but_still_inserts_when_valid() {
+        let svc = SessionLayer::new(verify).decode().layer(inner());
+        // 250 = no token, passed through WITHOUT a session (not a 401).
+        assert_eq!(status(svc.clone(), req(None)).await, 250);
+        // a valid token still inserts the session in decode mode.
+        assert_eq!(status(svc, req(Some("good"))).await, 200);
+    }
+}
