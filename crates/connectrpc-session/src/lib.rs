@@ -2,40 +2,66 @@
 //! projects that DON'T use Rauthy.
 //!
 //! A `tower::Layer` that pulls the bearer token off the request and verifies it
-//! with a caller-supplied closure (`Fn(&str) -> Option<Session>`): a DB session
-//! lookup, an API-key check, a macaroon verification — whatever the project
-//! uses. On success it inserts the shared [`Session`] into `req.extensions()`
-//! exactly like `OidcLayer` does, so the SAME `connectrpc-cedar` /
-//! `connectrpc-guard::cedar_enforce` authorizes the request. Both AuthN crates
-//! feed one Session contract; the authz layer never knows which authenticated
-//! the caller.
+//! with a caller-supplied closure (`Fn(&str) -> Option<T>`): a DB session
+//! lookup, an API-key check, a **macaroon** verification — whatever the project
+//! uses. On success it inserts `T` into `req.extensions()`, exactly like
+//! `OidcLayer` inserts a `Session`, so a downstream authz layer
+//! (`connectrpc-cedar` / `connectrpc-guard::cedar_enforce`) reads it out.
+//!
+//! **Generic over the inserted type `T`** — use the shared
+//! [`connectrpc_tower_kit::Session`] for the common case, or your own richer
+//! session struct (the example-multitenant-worker inserts a typed
+//! `SessionContext` carrying billing/org/role — no downgrade to generic strings).
+//!
+//! **Two modes** (matching the family's soft-middleware pattern, MIDDLEWARES.md
+//! §6 pattern 3):
+//! - [`enforce`](SessionLayer::new) (default) — reject (`401`) when the token is
+//!   missing/invalid. Like `OidcLayer`.
+//! - [`decode`](SessionLayer::decode) — soft: insert `T` if a valid token is
+//!   present, otherwise **pass through** unauthenticated. For services where
+//!   some RPCs are public (signup/login) and handlers enforce per-RPC.
 //!
 //! ```ignore
-//! // Non-Rauthy: your own token verification + the shared Cedar enforcement.
-//! SessionLayer::new(|tok| my_store.lookup(tok))   // → Session
-//!     .skip_paths(["/health"])
-//!     .layer(connectrpc_guard::cedar_enforce(authorizer, "myapp", my_service));
-//! ```
+//! // macaroon, soft (the example-multitenant-worker pattern):
+//! SessionLayer::new(move |tok| verify_macaroon(&keyring, tok).ok())  // -> Option<SessionContext>
+//!     .decode()
+//!     .layer(service);
 //!
-//! Shape mirrors `connectrpc-oidc`'s `OidcLayer` (same `ShortCircuitFuture`,
-//! `deny_response`, `Error = Infallible`), so the two are drop-in alternatives.
+//! // generic non-Rauthy, hard:
+//! SessionLayer::new(move |tok| store.lookup(tok))  // -> Option<connectrpc_tower_kit::Session>
+//!     .skip_paths(["/health"])
+//!     .layer(cedar_enforce(authorizer, "myapp", service));
+//! ```
 
 use std::convert::Infallible;
 use std::sync::Arc;
 use std::task::{Context as TaskContext, Poll};
 
 use connectrpc::{ConnectError, ConnectRpcBody};
-use connectrpc_tower_kit::{deny_response, Session, ShortCircuitFuture};
+use connectrpc_tower_kit::{deny_response, ShortCircuitFuture};
 use http::Response;
 use tower::{Layer, Service};
 use tracing::warn;
 
-pub use connectrpc_tower_kit::Session as SessionContract;
+// The common inserted type; projects may insert their own richer struct instead.
+pub use connectrpc_tower_kit::Session;
 
-/// Tower layer wrapping a service with opaque-token verification.
+/// How the layer treats a missing/invalid token.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Mode {
+    /// Reject with `401` (the default; like `OidcLayer`).
+    Enforce,
+    /// Soft: insert the session if a valid token is present, else pass through
+    /// unauthenticated and let the handler enforce.
+    Decode,
+}
+
+/// Tower layer wrapping a service with opaque-token verification. Generic over
+/// the inserted session type `T` (whatever `verify` returns).
 pub struct SessionLayer<F> {
     verify: Arc<F>,
     skip_paths: Arc<Vec<String>>,
+    mode: Mode,
 }
 
 impl<F> Clone for SessionLayer<F> {
@@ -43,25 +69,31 @@ impl<F> Clone for SessionLayer<F> {
         Self {
             verify: Arc::clone(&self.verify),
             skip_paths: Arc::clone(&self.skip_paths),
+            mode: self.mode,
         }
     }
 }
 
-impl<F> SessionLayer<F>
-where
-    F: Fn(&str) -> Option<Session>,
-{
-    /// `verify` maps a bearer token to a [`Session`] (`Some` = authenticated,
-    /// `None` = reject). It owns whatever the project's auth means — a session
-    /// store lookup, signature check, API-key match, macaroon verification.
+impl<F> SessionLayer<F> {
+    /// `verify` maps a bearer token to `Some(session)` (authenticated) or `None`
+    /// (reject/skip). Defaults to [`Mode::Enforce`].
     pub fn new(verify: F) -> Self {
         Self {
             verify: Arc::new(verify),
             skip_paths: Arc::new(Vec::new()),
+            mode: Mode::Enforce,
         }
     }
 
-    /// Paths that bypass verification (e.g. `/health`).
+    /// Switch to [`Mode::Decode`] (soft — insert if present, never reject).
+    #[must_use]
+    pub fn decode(mut self) -> Self {
+        self.mode = Mode::Decode;
+        self
+    }
+
+    /// Paths that bypass verification entirely (e.g. `/health`).
+    #[must_use]
     pub fn skip_paths<I, S>(mut self, paths: I) -> Self
     where
         I: IntoIterator<Item = S>,
@@ -80,6 +112,7 @@ impl<S, F> Layer<S> for SessionLayer<F> {
             inner,
             verify: Arc::clone(&self.verify),
             skip_paths: Arc::clone(&self.skip_paths),
+            mode: self.mode,
         }
     }
 }
@@ -89,6 +122,7 @@ pub struct SessionService<S, F> {
     inner: S,
     verify: Arc<F>,
     skip_paths: Arc<Vec<String>>,
+    mode: Mode,
 }
 
 impl<S: Clone, F> Clone for SessionService<S, F> {
@@ -97,14 +131,16 @@ impl<S: Clone, F> Clone for SessionService<S, F> {
             inner: self.inner.clone(),
             verify: Arc::clone(&self.verify),
             skip_paths: Arc::clone(&self.skip_paths),
+            mode: self.mode,
         }
     }
 }
 
-impl<S, F, B> Service<http::Request<B>> for SessionService<S, F>
+impl<S, F, B, T> Service<http::Request<B>> for SessionService<S, F>
 where
     S: Service<http::Request<B>, Response = Response<ConnectRpcBody>, Error = Infallible>,
-    F: Fn(&str) -> Option<Session>,
+    F: Fn(&str) -> Option<T>,
+    T: Send + Sync + Clone + 'static,
 {
     type Response = Response<ConnectRpcBody>;
     type Error = Infallible;
@@ -119,31 +155,26 @@ where
             return ShortCircuitFuture::pass(self.inner.call(req));
         }
 
-        let token = req
+        let session = req
             .headers()
             .get(http::header::AUTHORIZATION)
             .and_then(|v| v.to_str().ok())
             .and_then(|s| s.strip_prefix("Bearer "))
-            .map(str::to_owned);
+            .and_then(|tok| (self.verify)(tok));
 
-        let Some(token) = token else {
-            warn!(target: "connectrpc_session", reason = "missing_bearer", "rejecting request");
-            return ShortCircuitFuture::denied(deny_response(ConnectError::unauthenticated(
-                "missing bearer token",
-            )));
-        };
-
-        match (self.verify)(&token) {
-            Some(session) => {
-                // Same AuthN→AuthZ handoff as OidcLayer: downstream Cedar reads
-                // this Session out of extensions.
+        match (session, self.mode) {
+            // Authenticated: insert the session and continue (both modes).
+            (Some(session), _) => {
                 req.extensions_mut().insert(session);
                 ShortCircuitFuture::pass(self.inner.call(req))
             }
-            None => {
-                warn!(target: "connectrpc_session", reason = "invalid_token", "rejecting token");
+            // Soft mode: no/invalid token → pass through unauthenticated.
+            (None, Mode::Decode) => ShortCircuitFuture::pass(self.inner.call(req)),
+            // Hard mode: no/invalid token → reject.
+            (None, Mode::Enforce) => {
+                warn!(target: "connectrpc_session", "rejecting unauthenticated request");
                 ShortCircuitFuture::denied(deny_response(ConnectError::unauthenticated(
-                    "invalid session token",
+                    "missing or invalid session token",
                 )))
             }
         }
