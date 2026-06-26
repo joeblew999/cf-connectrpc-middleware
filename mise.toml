@@ -19,6 +19,12 @@ node = "latest"
 # Frontend (consumer examples). Kumo UI for the Orange theme.
 "npm:@cloudflare/kumo" = "latest"
 
+# aube — fast pnpm/npm replacement by jdx (the mise author): aube/aubr/aubx.
+# Reads the existing pnpm-lock (no migration). The kit:* tasks use it. The
+# mt:web demo frontend stays on pnpm — its Vite/esbuild needs lifecycle
+# build-scripts that aube jails by default (`aube approve-builds` to opt in).
+"aqua:jdx/aube" = "latest"
+
 # Cedar policy CLI (validate / authorize / format). Matches runtime cedar-policy = "4".
 "cargo:cedar-policy-cli" = "4.11.0"
 
@@ -338,11 +344,11 @@ wrangler dev
 # =============================================================================
 
 [tasks."kit:install"]
-description = "Install the kit's peer/dev deps (react, @cloudflare/kumo, @connectrpc/*) via pnpm"
+description = "Install the kit's peer/dev deps (react, @cloudflare/kumo, @connectrpc/*) via aube"
 shell = "nu -c"
 run = """
 cd packages/kumo-connectrpc-kit
-pnpm install
+aube install
 """
 
 [tasks."kit:typecheck"]
@@ -350,7 +356,7 @@ description = "Type-check the kit (tsc --noEmit)"
 shell = "nu -c"
 run = """
 cd packages/kumo-connectrpc-kit
-pnpm exec tsc --noEmit
+aubr typecheck
 """
 
 [tasks."kit:build"]
@@ -358,8 +364,7 @@ description = "Compile the kit's src/*.{ts,tsx} → dist/*.js + *.d.ts (JSX comp
 shell = "nu -c"
 run = """
 cd packages/kumo-connectrpc-kit
-rm -rf dist
-pnpm exec tsc
+aubr build
 """
 
 [tasks."kit:test"]
@@ -367,7 +372,7 @@ description = "Run the kit's test suite (vitest run)"
 shell = "nu -c"
 run = """
 cd packages/kumo-connectrpc-kit
-pnpm exec vitest run
+aubr test
 """
 
 [tasks."kit:jsr-check"]
@@ -375,7 +380,7 @@ description = "JSR dry-run on the kit (slow-types, packaging) — no publish"
 shell = "nu -c"
 run = """
 cd packages/kumo-connectrpc-kit
-pnpm dlx jsr publish --dry-run --allow-dirty
+aubx jsr publish --dry-run --allow-dirty
 """
 
 [tasks."kit:jsr-publish"]
@@ -383,7 +388,7 @@ description = "Publish the kit to JSR. Normally CI does this on push (OIDC); thi
 shell = "nu -c"
 run = """
 cd packages/kumo-connectrpc-kit
-pnpm dlx jsr publish
+aubx jsr publish
 """
 
 
