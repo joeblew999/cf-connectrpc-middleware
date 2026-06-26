@@ -1,0 +1,24 @@
+name = "rauthy-cedar-gateway"
+main = "build/index.js"
+compatibility_date = "2026-04-22"
+
+[build]
+command = "cargo install -q \"worker-build@^0.8\" && worker-build --release"
+# `cwd` is resolved relative to where `wrangler dev` was LAUNCHED (not this
+# file). serve.nu always launches from the repo root, so this path is stable.
+# Without it, the multi-Worker `wrangler dev -c gateway -c worker` run would run
+# worker-build at the repo root and parse the workspace Cargo.toml, failing with
+# "missing field package".
+cwd = "examples/rauthy-cedar/gateway"
+
+# Service binding: the gateway calls the BACKEND (api) Worker via this binding.
+# `env.service("API")` resolves it to a `worker::Fetcher`, which FetcherTransport
+# wraps. `service` is the backend Worker's `name` (see ../worker/wrangler.toml).
+#
+# Locally, run BOTH workers in one wrangler dev command so the binding is wired:
+#   wrangler dev -c gateway/wrangler.toml -c worker/wrangler.toml
+# The first config (gateway) is the primary on :8787; the backend runs as an
+# auxiliary Worker reachable only via this binding. serve.nu does exactly this.
+[[services]]
+binding = "API"
+service = "rauthy-cedar-api"

@@ -141,6 +141,9 @@ run = """
 #      middleware stack on wasm32 — that's the genuine wasm proof.
 cargo check --workspace
 cargo check --target $env.WASM_TARGET --manifest-path examples/rauthy-cedar/worker/Cargo.toml
+# The multi-Worker gateway (front door → backend over a [[services]] binding)
+# is a third standalone wasm workspace — check it on wasm32 too.
+cargo check --target $env.WASM_TARGET --manifest-path examples/rauthy-cedar/gateway/Cargo.toml
 """
 
 [tasks."cargo:build"]
@@ -151,6 +154,7 @@ run = """
 # `--target wasm32` across the workspace.
 cargo build --workspace
 cargo build --target $env.WASM_TARGET --manifest-path examples/rauthy-cedar/worker/Cargo.toml
+cargo build --target $env.WASM_TARGET --manifest-path examples/rauthy-cedar/gateway/Cargo.toml
 """
 
 [tasks."cargo:build:release"]
@@ -162,6 +166,7 @@ run = """
 # release profile (opt-level=z, lto) in its own Cargo.toml.
 cargo build --workspace --release
 cargo build --target $env.WASM_TARGET --manifest-path examples/rauthy-cedar/worker/Cargo.toml --release
+cargo build --target $env.WASM_TARGET --manifest-path examples/rauthy-cedar/gateway/Cargo.toml --release
 """
 
 [tasks."cargo:test"]
@@ -178,6 +183,8 @@ run = """
 # cargo:check for the mixed-workspace rationale.
 cargo clippy --workspace --all-targets -- -D warnings
 cargo clippy --target $env.WASM_TARGET --manifest-path examples/rauthy-cedar/worker/Cargo.toml -- -D warnings
+# The multi-Worker gateway is a third standalone wasm workspace — lint it too.
+cargo clippy --target $env.WASM_TARGET --manifest-path examples/rauthy-cedar/gateway/Cargo.toml -- -D warnings
 """
 
 [tasks."cargo:format"]
@@ -306,11 +313,12 @@ for runner in $runners {
 # =============================================================================
 
 [tasks."example:check"]
-description = "Build the rauthy-cedar example both ways: native server + wasm worker"
+description = "Build the rauthy-cedar example three ways: native server + wasm backend worker + wasm gateway worker"
 shell = "nu -c"
 run = """
 cargo check -p rauthy-cedar-app -p rauthy-cedar-server
 cargo check --target $env.WASM_TARGET --manifest-path examples/rauthy-cedar/worker/Cargo.toml
+cargo check --target $env.WASM_TARGET --manifest-path examples/rauthy-cedar/gateway/Cargo.toml
 """
 
 [tasks."example:test"]
@@ -327,12 +335,23 @@ shell = "nu -c"
 run = "nu examples/rauthy-cedar/server/serve.nu"
 
 [tasks."example:worker"]
-description = "Run the rauthy-cedar CF Worker via wrangler dev (needs a Rauthy at :8088 — start one with example:serve or vm-uncloud recipe:local)"
+description = "Run the rauthy-cedar CF backend (api) Worker via wrangler dev (needs a Rauthy at :8088 — start one with example:serve or vm-uncloud recipe:local)"
 shell = "nu -c"
 run = """
-cd examples/rauthy-cedar/worker
-wrangler dev
+# Launch from the repo root with -c so wrangler.toml's `[build] cwd` (which is
+# resolved relative to the launch dir) lands in the worker crate's directory.
+wrangler dev -c examples/rauthy-cedar/worker/wrangler.toml
 """
+
+[tasks."example:worker:e2e"]
+description = "Run the rauthy-cedar CF WORKER e2e (edge analog of example:serve): boots Rauthy in Docker, mints a token, runs the backend worker via wrangler dev, asserts the oidc→cedar cases + reflection (needs Docker + wrangler)"
+shell = "nu -c"
+run = "nu examples/rauthy-cedar/worker/serve.nu"
+
+[tasks."example:gateway:e2e"]
+description = "Run the rauthy-cedar MULTI-WORKER e2e: boots Rauthy, runs BOTH workers in one wrangler dev (gateway primary + api auxiliary via [[services]] binding), mints a token, asserts gateway ProxyRead → service binding → backend OIDC+Cedar (200 w/ token, 401 propagated w/o) (needs Docker + wrangler)"
+shell = "nu -c"
+run = "nu examples/rauthy-cedar/gateway/serve.nu"
 
 
 # =============================================================================

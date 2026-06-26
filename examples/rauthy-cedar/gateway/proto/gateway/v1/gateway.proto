@@ -1,0 +1,37 @@
+edition = "2023";
+
+package gateway.v1;
+
+// GatewayService is the FRONT-DOOR ConnectRPC service hosted by the gateway
+// Worker. It is intentionally trivial: a single `ProxyRead` RPC whose handler
+// turns around and calls the auth-protected BACKEND Worker's `demo.v1.Api/Read`
+// over a Cloudflare `[[services]]` binding (no DNS / TLS / public-internet hop).
+//
+// The gateway forwards the caller's `Authorization: Bearer <token>` header onto
+// the backend call, so the backend's full OIDC -> Cedar middleware stack
+// (rauthy_cedar_app::make) is what actually authorizes the request. The gateway
+// itself enforces nothing — it is a pure inter-Worker ConnectRPC proxy, proving
+// the connyay `FetcherTransport` path end-to-end.
+//
+//   POST /gateway.v1.GatewayService/ProxyRead   (Authorization: Bearer ...)
+//     -> FetcherTransport(env.service("API")) -> POST /demo.v1.Api/Read
+//        -> backend OIDC verifies the token, Cedar allows Read
+//        -> backend Reply{subject, roles} flows back through the gateway.
+service GatewayService {
+  rpc ProxyRead(ProxyReadRequest) returns (ProxyReadResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+}
+
+message ProxyReadRequest {}
+
+message ProxyReadResponse {
+  // The subject the BACKEND extracted from the verified token (proves the
+  // inter-Worker hop reached the guarded backend and it authorized the call).
+  string subject = 1;
+  // The roles the backend echoed back from the verified Session.
+  repeated string roles = 2;
+  // Which upstream the gateway proxied to — a constant label so the e2e can
+  // assert the request really traversed the service binding.
+  string upstream = 3;
+}

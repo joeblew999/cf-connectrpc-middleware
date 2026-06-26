@@ -39,7 +39,7 @@ never chosen inside the shared app:
 | dep | native (`server/`) | Cloudflare (`worker/`) |
 | --- | --- | --- |
 | metrics `sink` (`MetricSink`) | `NoopSink` | `AeMetricSink` over a `worker::AnalyticsEngineDataset` (`AE` binding) |
-| rate `limiter` (`RateLimiter`) | `AllowAll` | `CfRateLimiter` over `worker::RateLimiter` (`RL` binding) |
+| rate `limiter` (`RateLimiter`) | `AllowAll` | `CfRateLimiter` over `worker::RateLimiter` (`RL` binding); degrades to allow-all if `RL` is absent — see the [multi-worker note](#multi-worker-gateway--inter-worker-connectrpc-over-a-service-binding) |
 
 `AllowAll` is the native counterpart to the CF Rate Limiting binding (added to
 `connectrpc-cf-rate-limit`, mirroring `NoopSink`). The CF bindings are declared
@@ -117,8 +117,18 @@ the `make()` composition, the policies, the `Api` service — lives in
 ```
 app/                shared: proto + policies + the Api impl + make() stack   (rlib, builds native AND wasm)
 ├── server/         NATIVE host  — hyper  + ureq JWKS  + NoopSink/AllowAll      → calls app::make()
-└── worker/         CF WORKER    — event  + worker::Fetch JWKS + AE/RL bindings → calls app::make()
+├── worker/         CF WORKER (api) — event + worker::Fetch JWKS + AE/RL bindings → calls app::make()  (name = rauthy-cedar-api)
+└── gateway/        CF WORKER (gateway) — serves gateway.v1.GatewayService; ProxyRead → backend over a [[services]] binding
 ```
+
+This yields **three deployment shapes** of the same guarded service:
+
+1. **native** — `server/`, the hyper host (`example:serve`).
+2. **single worker** — `worker/` alone on `wrangler dev`, the backend serving
+   `demo.v1.Api` on the edge (`example:worker:e2e`).
+3. **multi-worker gateway** — `gateway/` fronts `worker/`, calling it over a
+   Cloudflare `[[services]]` binding via connyay's `FetcherTransport`
+   (`example:gateway:e2e`). See [§ Multi-worker gateway](#multi-worker-gateway--inter-worker-connectrpc-over-a-service-binding).
 
 Each host does only what differs by platform: fetch the JWKS, run the serve
 loop, and inject the metrics sink + rate limiter. The `app::make(verifier, sink,
@@ -145,40 +155,100 @@ nu examples/rauthy-cedar/server/serve.nu      # needs a local Docker daemon
 
 ### Cloudflare Worker (`wrangler dev`) — the SAME `app`, on the edge:
 
-```sh
-# worker/wrangler.toml [vars] point at a running Rauthy (e.g. :8088); the
-# [[analytics_engine_datasets]] + [[ratelimits]] bindings are declared there.
-cd examples/rauthy-cedar/worker && wrangler dev          # → http://127.0.0.1:8787
+`worker/serve.nu` is the edge analog of the native `server/serve.nu`: it boots
+the SAME Rauthy on :8088 in Docker, mints a real user token, runs the backend
+(api) Worker via `wrangler dev` (miniflare) on :8787, asserts the SAME oidc→cedar
+cases over HTTP plus the worker-specific gRPC reflection, then tears Rauthy +
+wrangler down.
 
+```sh
+mise run example:worker:e2e      # needs a Docker daemon + wrangler (worker-build wasm compile is slow on the first run)
+```
+```
+  ✓ healthz (no token)                  [200]
+  ✓ Health/Check (no token) → public    [200]
+  ✓ Read no-token → AuthN deny          [401]
+  ✓ Read token → allow                  [200]
+  ✓ Admin admin-role → allow            [200]
+  ✓ Super no-superuser → deny           [403]
+  ✓ GetDoc(public) → body allow         [200]
+  ✓ GetDoc(secret) → body deny          [403]
+  ✓ Health/Check body is SERVING        [{"status":"SERVING"}]
+  ✓ ServerReflection lists demo.v1.Api  [200]   gRPC reflection (Connect stream)
+==> WORKER E2E OK
+```
+
+Identical behaviour native and on `wrangler dev`/miniflare. To drive the backend
+by hand instead:
+
+```sh
+wrangler dev -c examples/rauthy-cedar/worker/wrangler.toml          # → http://127.0.0.1:8787
 curl -s -H "Authorization: Bearer $TOKEN" -X POST 127.0.0.1:8787/demo.v1.Api/Read                                  # 200
 curl -s -H "Authorization: Bearer $TOKEN" -X POST 127.0.0.1:8787/demo.v1.Api/Super                                 # 403
 curl -s -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d '{"docId":"public"}' 127.0.0.1:8787/demo.v1.Api/GetDoc  # 200
 curl -s -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d '{"docId":"secret"}' 127.0.0.1:8787/demo.v1.Api/GetDoc  # 403
 ```
 
-Identical behaviour native and on `wrangler dev`/miniflare (no-token 401 ·
-Read/Admin 200 · Super 403 · GetDoc public/secret 200/403).
+### Multi-worker gateway — inter-Worker ConnectRPC over a service binding
 
-### CLIENT transport — Worker → Connect service (`/client-demo`)
+Everything above runs the guarded service as ONE Worker. The **gateway** shape
+adds a second Worker (`gateway/`) in front of it, demonstrating **inter-Worker
+ConnectRPC**: no DNS, no TLS, no public-internet hop — the gateway reaches the
+backend through a Cloudflare `[[services]]` binding via connyay's
+[`FetcherTransport`](https://github.com/connyay/connectrpc-workers) (the same
+pattern as connyay's own `examples/multi/gateway-worker`).
 
-Everything above is the Worker as a Connect **server**. The Worker also proves
-the **client** half of "Connect on Workers" via
-[connyay/connectrpc-workers](https://github.com/connyay/connectrpc-workers):
-its `FetchTransport` wraps the global `worker::Fetch` and implements
-`connectrpc::client::ClientTransport`, so the generated `ApiClient<T>` (from the
-same shared proto) makes a real outbound Connect call from inside the isolate.
+```
+caller ──Authorization: Bearer──▶ gateway (rauthy-cedar-gateway, :8787)
+                                    │  serves gateway.v1.GatewayService/ProxyRead
+                                    │  ApiClient<FetcherTransport>(env.service("API"))
+                                    ▼  [[services]] binding  (no DNS/TLS/public hop)
+                                  backend (rauthy-cedar-api, auxiliary worker)
+                                    │  demo.v1.Api/Read — the FULL OIDC→Cedar make() stack
+                                    ▼  Reply{subject, roles}  ──▶ ProxyReadResponse
+```
 
-The unauthenticated `/client-demo` route (handled before the guarded `make()`
-stack, so it is not auth-gated) builds an `ApiClient` over a `FetchTransport`
-pointed at `CLIENT_DEMO_TARGET` (`worker/wrangler.toml [vars]`) and calls
-`demo.v1.Api/Read`, returning a JSON summary of the round trip:
+The gateway enforces nothing itself: it **forwards the caller's `Authorization`
+header** onto the backend call (via `CallOptions::with_header`), so the backend's
+`OidcLayer → Cedar` stack is what authorizes. A valid token → backend 200 → the
+gateway returns the echoed Session; **no token → the backend's 401 propagates
+back through** the gateway as a Connect `unauthenticated` error. The gateway
+reuses the backend's generated client type verbatim
+(`rauthy_cedar_app::proto::demo::v1::ApiClient`) — it depends on `app/` for the
+client, never re-generating `demo.v1`. The binding is declared in
+[`gateway/wrangler.toml`](gateway/wrangler.toml) (`[[services]] binding = "API"`
+→ `service = "rauthy-cedar-api"`).
+
+`gateway/serve.nu` boots the SAME Rauthy, then runs **both** Workers in **one**
+`wrangler dev` command — the [CF-supported way](https://developers.cloudflare.com/workers/local-development/multi-workers/)
+to wire `[[services]]` bindings locally:
 
 ```sh
-# CLIENT_DEMO_TARGET unset → 200 explaining how to set it.
-curl -s 127.0.0.1:8787/client-demo
-# Point it at the native server or the Worker's own origin, then:
-curl -s 127.0.0.1:8787/client-demo   # → {"client_demo":"ok"|"error", ...}
+mise run example:gateway:e2e     # needs a Docker daemon + wrangler
+# under the hood: wrangler dev -c gateway/wrangler.toml -c worker/wrangler.toml
+#   first config (gateway) = primary on :8787; backend = auxiliary via the binding
 ```
+```
+  ✓ ProxyRead no-token → backend 401 propagated through gateway  [401]
+  ✓ ProxyRead token → 200 via service binding; backend Session echoed  [200] {"subject":"...","roles":[...],"upstream":"rauthy-cedar-api (service binding)"}
+==> GATEWAY E2E OK
+```
+
+Two local-dev wrinkles worth knowing (both handled, both documented in-code):
+
+1. **`[build] cwd`** — each Worker's `wrangler.toml` sets `[build] cwd` to its
+   crate directory (relative to the repo-root launch dir) so `worker-build` runs
+   in the right crate under the multi-config `wrangler dev` — otherwise it would
+   inherit the repo root and parse the workspace `Cargo.toml`. The gateway is a
+   standalone wasm workspace (its own `[workspace]` + `[profile]`, excluded from
+   the root workspace) exactly like the backend `worker/`.
+2. **Auxiliary-worker rate-limit binding** — when the backend runs as an
+   *auxiliary* Worker (under `-c gateway -c worker`), miniflare does **not**
+   provision its `[[ratelimits]]` `RL` binding, so `env.rate_limiter("RL")`
+   errors. The backend degrades to `AllowAll` when `RL` is absent (the sanctioned
+   `AllowAll` use for "hosts that don't provision a CF rate-limit binding") so the
+   request reaches the OIDC→Cedar stack instead of 500-ing. In the single-worker
+   dev and in production the `RL` binding is present and the real limiter runs.
 
 ### Use the Rauthy GUI to drive the decision
 

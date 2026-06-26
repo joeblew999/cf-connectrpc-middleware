@@ -1,4 +1,9 @@
-//! CLOUDFLARE WORKER host for the shared `rauthy-cedar-app`.
+//! CLOUDFLARE WORKER host for the shared `rauthy-cedar-app` — the BACKEND (api)
+//! Worker. wrangler `name = "rauthy-cedar-api"`. It SERVES the guarded
+//! `demo.v1.Api` (+ Health + Reflection) with the full OIDC -> Cedar middleware
+//! stack. The sibling `../gateway` Worker fronts it over a `[[services]]`
+//! binding and proxies `ProxyRead` here via connyay's `FetcherTransport` — see
+//! `../gateway` and `../README.md` for that multi-Worker shape.
 //!
 //! Identical to the native `../server` except for the platform bits:
 //!   1. fetch JWKS with `worker::Fetch` (the server uses `ureq`)
@@ -18,12 +23,9 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use connectrpc::client::ClientConfig;
 use connectrpc_cf_metrics::MetricSink;
 use connectrpc_cf_rate_limit::{RateLimitOutcome, RateLimiter};
 use connectrpc_oidc::JwksVerifier;
-use connectrpc_workers::FetchTransport;
-use rauthy_cedar_app::proto::demo::v1::{ApiClient, Request as ApiRequest};
 use rauthy_cedar_app::{ConnectRpcBody, make};
 use tokio::sync::OnceCell;
 use tower::Service;
@@ -59,15 +61,31 @@ impl MetricSink for AeMetricSink {
 
 /// CF Rate Limiting binding — the CF impl of [`RateLimiter`]. Maps the
 /// binding's `{ success }` outcome onto the crate's three-way outcome.
-struct CfRateLimiter(Arc<CfRl>);
+///
+/// Falls back to [`AllowAll`] when the `RL` binding is absent. This matters for
+/// the MULTI-WORKER local dev shape (../gateway): when this backend runs as an
+/// AUXILIARY Worker under `wrangler dev -c gateway -c worker`, miniflare does
+/// NOT provision the auxiliary Worker's `[[ratelimits]]` binding, so
+/// `env.rate_limiter("RL")` errors. Rather than 500 the whole request before
+/// OIDC/Cedar even run, we degrade rate-limiting to allow-all — exactly what
+/// `AllowAll`'s own docs sanction for "hosts that don't provision a CF
+/// rate-limit binding (the native server, local dev)". In production and in the
+/// single-worker dev the `RL` binding is present, so the real limiter is used.
+enum CfRateLimiter {
+    Cf(Arc<CfRl>),
+    Allow,
+}
 
 #[async_trait]
 impl RateLimiter for CfRateLimiter {
     async fn check(&self, key: String) -> RateLimitOutcome {
-        match self.0.limit(key).await {
-            Ok(o) if o.success => RateLimitOutcome::Allowed,
-            Ok(_) => RateLimitOutcome::Exceeded,
-            Err(e) => RateLimitOutcome::Error(e.to_string()),
+        match self {
+            CfRateLimiter::Cf(rl) => match rl.limit(key).await {
+                Ok(o) if o.success => RateLimitOutcome::Allowed,
+                Ok(_) => RateLimitOutcome::Exceeded,
+                Err(e) => RateLimitOutcome::Error(e.to_string()),
+            },
+            CfRateLimiter::Allow => RateLimitOutcome::Allowed,
         }
     }
 }
@@ -93,105 +111,25 @@ async fn verifier(env: &Env) -> worker::Result<Arc<JwksVerifier>> {
         .cloned()
 }
 
-/// Build a plain `200` JSON response in the Worker's body type.
-fn json_response(json: String) -> http::Response<ConnectRpcBody> {
-    let mut resp = http::Response::new(ConnectRpcBody::Full(http_body_util::Full::new(
-        bytes::Bytes::from(json),
-    )));
-    resp.headers_mut().insert(
-        http::header::CONTENT_TYPE,
-        http::HeaderValue::from_static("application/json"),
-    );
-    resp
-}
-
-/// `/client-demo` — the CLIENT half of "Connect on Workers".
-///
-/// This route is OUTSIDE the guarded `make()` server stack: it is not
-/// auth-gated, because it demonstrates the Worker acting as a Connect *client*,
-/// not serving the protected API. It builds a [`FetchTransport`] (connyay
-/// `connectrpc-workers`, wrapping the global `worker::Fetch`) pointed at the
-/// `CLIENT_DEMO_TARGET` Connect service, constructs the generated `ApiClient`
-/// from the SHARED app's proto, and calls `demo.v1.Api/Read`.
-///
-/// `worker::Fetch` futures are `!Send`; the crate's `FetchTransport` already
-/// wraps the call in `SendFuture`/`SendWrapper` to satisfy `ClientTransport`'s
-/// `Send` bound, and the Workers isolate is single-threaded, so no extra
-/// `.into_send()` is needed here.
-async fn client_demo(env: &Env) -> worker::Result<http::Response<ConnectRpcBody>> {
-    let target = env
-        .var("CLIENT_DEMO_TARGET")
-        .ok()
-        .map(|v| v.to_string())
-        .filter(|s| !s.is_empty());
-
-    let Some(target) = target else {
-        return Ok(json_response(
-            "{\"client_demo\":\"unset\",\"hint\":\"set CLIENT_DEMO_TARGET in \
-             wrangler.toml [vars] to a Connect service URL (e.g. \
-             http://localhost:8090 or this Worker's own public origin) and call \
-             /client-demo again to drive demo.v1.Api/Read via the \
-             connectrpc-workers FetchTransport\"}"
-                .to_string(),
-        ));
-    };
-
-    let uri: http::Uri = target
-        .parse()
-        .map_err(|e| worker::Error::RustError(format!("bad CLIENT_DEMO_TARGET: {e}")))?;
-    let transport = FetchTransport::new(uri)?;
-    // ClientConfig::new defaults to Protocol::Connect + proto codec — exactly
-    // what Workers fetch subrequests support (no raw HTTP/2 / gRPC trailers).
-    let config = ClientConfig::new(target.parse().map_err(|e| {
-        worker::Error::RustError(format!("bad CLIENT_DEMO_TARGET uri: {e}"))
-    })?);
-    let client = ApiClient::new(transport, config);
-
-    // demo.v1.Api/Read takes an empty Request{}. This is a REAL outbound
-    // Connect call; an unauthenticated target will return a Connect error,
-    // which we surface verbatim so the round trip is observable either way.
-    match client.read(ApiRequest::default()).await {
-        Ok(resp) => {
-            let view = resp.view();
-            let roles = view
-                .roles
-                .iter()
-                .map(|r| format!("\"{}\"", r.replace('"', "'")))
-                .collect::<Vec<_>>()
-                .join(",");
-            Ok(json_response(format!(
-                "{{\"client_demo\":\"ok\",\"target\":\"{}\",\"subject\":\"{}\",\"roles\":[{}]}}",
-                target,
-                view.subject.unwrap_or_default().replace('"', "'"),
-                roles,
-            )))
-        }
-        Err(e) => Ok(json_response(format!(
-            "{{\"client_demo\":\"error\",\"target\":\"{}\",\"error\":\"{}\"}}",
-            target,
-            e.to_string().replace('"', "'"),
-        ))),
-    }
-}
-
 #[event(fetch, respond_with_errors)]
 async fn fetch(
     req: HttpRequest,
     env: Env,
     _ctx: Context,
 ) -> worker::Result<http::Response<ConnectRpcBody>> {
-    // CLIENT-transport demo: handled BEFORE the guarded server stack so it is
-    // not auth-gated. Proves the Worker can call a Connect service outbound.
-    if req.uri().path() == "/client-demo" {
-        return client_demo(&env).await;
-    }
-
     let verifier = verifier(&env).await?;
     // (3) platform-specific: build the CF metrics sink + rate limiter from the
     // env bindings and inject them into the SAME shared stack the native host
     // builds. The bindings (AE, RL) are declared in wrangler.toml.
     let sink = AeMetricSink(Arc::new(env.analytics_engine("AE")?));
-    let limiter = CfRateLimiter(Arc::new(env.rate_limiter("RL")?));
+    // The `RL` binding is absent when this backend runs as an AUXILIARY Worker
+    // under the multi-Worker `wrangler dev -c gateway -c worker` (miniflare
+    // doesn't provision auxiliary-Worker rate-limit bindings). Degrade to
+    // allow-all there instead of 500-ing before OIDC/Cedar — see CfRateLimiter.
+    let limiter = match env.rate_limiter("RL") {
+        Ok(rl) => CfRateLimiter::Cf(Arc::new(rl)),
+        Err(_) => CfRateLimiter::Allow,
+    };
     let mut svc = make::<worker::Body, _, _>(verifier, sink, limiter);
     Ok(svc.call(req).await.unwrap())
 }

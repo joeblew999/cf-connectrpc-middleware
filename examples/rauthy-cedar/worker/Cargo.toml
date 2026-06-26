@@ -26,25 +26,7 @@ connectrpc-cf-rate-limit = { path = "../../../crates/connectrpc-cf-rate-limit" }
 worker        = { version = "0.8", features = ["http"] }
 worker-macros = { version = "0.8", features = ["http"] }
 
-# connectrpc-workers (connyay) — the CLIENT half of "Connect on Workers".
-# `FetchTransport` wraps the global `worker::Fetch` and implements
-# `connectrpc::client::ClientTransport`, so the generated `ApiClient<T>` (from
-# the shared app's proto) calls a Connect service straight from the Worker. We
-# only use the trait-based transport surface, so connectrpc stays
-# `default-features = false` (NO `client` feature — that one pulls in
-# hyper/tokio-net and won't link on wasm32). Pinned to the same 0.7 main commit
-# the rest of the workspace tracks.
-connectrpc-workers = { git = "https://github.com/connyay/connectrpc-workers", rev = "a366077" }
-# Direct connectrpc dep only to name `client::ClientConfig` for the demo client.
-# Matches the workspace pin (0.7, default-features off); the `client` (concrete
-# hyper transports) module surface — ClientConfig/ClientTransport/call_unary —
-# is unconditional, so no extra feature is needed.
-connectrpc    = { version = "0.7", default-features = false }
 http  = "1"
-# Used only by the /client-demo route to build a plain JSON `ConnectRpcBody::Full`
-# response (both pure-Rust, wasm-safe; the same crates the shared app uses).
-http-body-util = "0.1"
-bytes = "1"
 tower = { version = "0.5", default-features = false }
 # tokio sync::OnceCell for the per-isolate JWKS cache (no runtime needed).
 tokio = { version = "1", default-features = false, features = ["sync"] }

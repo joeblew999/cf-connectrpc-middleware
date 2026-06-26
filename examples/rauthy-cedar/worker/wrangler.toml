@@ -1,9 +1,15 @@
-name = "rauthy-cedar-worker"
+name = "rauthy-cedar-api"
 main = "build/index.js"
 compatibility_date = "2026-04-22"
 
 [build]
 command = "cargo install -q \"worker-build@^0.8\" && worker-build --release"
+# `cwd` is resolved relative to where `wrangler dev` was LAUNCHED. Both serve.nu
+# scripts (this worker's own, and the gateway's multi-Worker run) launch from the
+# repo root, so this path is stable and worker-build runs in this crate's dir.
+# Without it the build would run at the repo root and parse the workspace
+# Cargo.toml ("missing field package").
+cwd = "examples/rauthy-cedar/worker"
 
 # Where the Worker validates tokens against. For local `wrangler dev` against a
 # `recipe:local` / serve.nu Rauthy, point these at it (miniflare reaches host
@@ -12,14 +18,6 @@ command = "cargo install -q \"worker-build@^0.8\" && worker-build --release"
 RAUTHY_ISSUER   = "http://localhost:8088/auth/v1/"
 RAUTHY_JWKS_URL = "http://localhost:8088/auth/v1/oidc/certs"
 RAUTHY_AUD      = "worker-client"
-
-# Target Connect service URL for the `/client-demo` route, which exercises the
-# connectrpc-workers CLIENT transport (Worker → Connect service via FetchTransport,
-# proving the OUTBOUND half of "Connect on Workers"). The demo calls demo.v1.Api/Read.
-# Leave it empty to have /client-demo return a 200 explaining how to set it.
-# Point it at the native server (`http://localhost:8090`) or the Worker's own
-# public origin (a self-call round trip).
-CLIENT_DEMO_TARGET = ""
 
 # The metrics SINK the Worker injects into make(): a Workers Analytics Engine
 # dataset. The MetricsInterceptor writes one data point per RPC

@@ -1,0 +1,65 @@
+# Standalone workspace — like ../worker, a CF Worker (cdylib/wasm32) can't share
+# the parent's [profile]/deps. The parent Cargo.toml excludes this path too.
+[workspace]
+
+[package]
+name = "rauthy-cedar-gateway"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+# The shared app — depended on ONLY for the generated backend client type
+# (`proto::demo::v1::ApiClient` + `Request`) and the `ConnectRpcBody` re-export.
+# The gateway does NOT compose make(): it serves its own tiny GatewayService and
+# proxies to the backend, which is the worker that runs the middleware stack.
+rauthy-cedar-app = { path = "../app" }
+
+worker        = { version = "0.8", features = ["http"] }
+worker-macros = { version = "0.8", features = ["http"] }
+
+# connectrpc-workers (connyay) — the inter-Worker transport. `FetcherTransport`
+# wraps a `worker::Fetcher` obtained from a `[[services]]` binding
+# (`env.service("API")`) and implements `connectrpc::client::ClientTransport`,
+# so the generated `ApiClient<FetcherTransport>` calls the backend Worker over
+# the binding (no DNS/TLS/public hop). Same pin the rest of the workspace tracks.
+connectrpc-workers = { git = "https://github.com/connyay/connectrpc-workers", rev = "a366077" }
+
+# connectrpc for the client config / per-call options (forwarding the caller's
+# Authorization header) and the server-side service traits the gateway serves.
+# default-features off: NO `client` feature (it pulls hyper/tokio-net, won't link
+# on wasm32) — the trait-based transport surface + ClientConfig/CallOptions are
+# unconditional. Matches the workspace 0.7 pin.
+connectrpc = { version = "0.7", default-features = false }
+
+http  = "1"
+tower = { version = "0.5", default-features = false }
+
+# Protobuf codegen deps for the gateway's OWN proto (gateway.v1). These mirror
+# the multi-proto crate / the app: consumed only by the code emitted by
+# `connectrpc::include_generated!()`.
+buffa       = { version = "0.7", features = ["json"] }
+buffa-types = "0.7"
+serde       = { version = "1", features = ["derive"] }
+serde_json  = "1"
+http-body   = "1"
+bytes       = "1"
+
+[build-dependencies]
+connectrpc-build = "0.7"
+
+# False positives: worker-macros supplies the `#[event(fetch)]` entrypoint macro
+# (attribute-only, no path reference machete can see) and must stay or the Worker
+# won't link; buffa/buffa-types/serde/serde_json/http-body/bytes are all consumed
+# solely by the generated gateway.v1 code.
+[package.metadata.cargo-machete]
+ignored = ["worker-macros", "buffa", "buffa-types", "serde", "serde_json", "http-body", "bytes"]
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
