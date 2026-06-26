@@ -72,12 +72,21 @@ def main [] {
   }
 
   def code [args: list] { (^curl -s -o /dev/null -w "%{http_code}" ...$args) }
+  # A Connect unary call carries the request message as the JSON body
+  # (application/json). Read/Admin/Super take an empty Request{} → `{}`. Without
+  # the content-type + body the server rejects the call at the codec with 415
+  # before any middleware decision — so the body is part of a well-formed call,
+  # not a relaxation of the assertion.
+  let ct = "content-type: application/json"
   let cases = [
     [(code [$"http://localhost:($SP)/healthz"])                                                              "200" "healthz (no token)"]
-    [(code [-X POST $"http://localhost:($SP)/demo.v1.Api/Read"])                                             "401" "Read no-token → AuthN deny"]
-    [(code [-H $"Authorization: Bearer ($token)" -X POST $"http://localhost:($SP)/demo.v1.Api/Read"])        "200" "Read token → allow"]
-    [(code [-H $"Authorization: Bearer ($token)" -X POST $"http://localhost:($SP)/demo.v1.Api/Admin"])       "200" "Admin admin-role → allow"]
-    [(code [-H $"Authorization: Bearer ($token)" -X POST $"http://localhost:($SP)/demo.v1.Api/Super"])       "403" "Super no-superuser → deny"]
+    # No token: OidcLayer rejects (401) BEFORE the codec, so this stays 401
+    # whether or not a body is sent. Send the well-formed body anyway so the
+    # only difference from the allow case is the missing Authorization header.
+    [(code [-H $ct -d "{}" -X POST $"http://localhost:($SP)/demo.v1.Api/Read"])                              "401" "Read no-token → AuthN deny"]
+    [(code [-H $"Authorization: Bearer ($token)" -H $ct -d "{}" -X POST $"http://localhost:($SP)/demo.v1.Api/Read"])   "200" "Read token → allow"]
+    [(code [-H $"Authorization: Bearer ($token)" -H $ct -d "{}" -X POST $"http://localhost:($SP)/demo.v1.Api/Admin"])  "200" "Admin admin-role → allow"]
+    [(code [-H $"Authorization: Bearer ($token)" -H $ct -d "{}" -X POST $"http://localhost:($SP)/demo.v1.Api/Super"])  "403" "Super no-superuser → deny"]
     # Body-aware: the CedarInterceptor reads doc_id from the JSON body. Connect
     # unary takes the request message as the JSON body (application/json).
     [(code [-H $"Authorization: Bearer ($token)" -H "Content-Type: application/json" -d "{\"docId\":\"public\"}" $"http://localhost:($SP)/demo.v1.Api/GetDoc"])  "200" "GetDoc(public) → body allow"]

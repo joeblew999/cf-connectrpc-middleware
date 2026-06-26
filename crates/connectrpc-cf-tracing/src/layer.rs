@@ -314,19 +314,30 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    async fn missing_fields_dont_panic() {
+    // Plain `#[test]` + a current-thread runtime (like the sibling above) so the
+    // `SERIAL` guard is never held across an `.await` — holding a std Mutex over
+    // a yield point trips clippy's `await_holding_lock`. block_on drives the
+    // future synchronously, which is fine here and keeps both tests serialized.
+    #[test]
+    fn missing_fields_dont_panic() {
         let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
         // Extractor returns CfFields::empty() — verify the layer still
         // wires through and the inner service sees the request.
-        let layer = TracingLayer::new(|_: &Request<()>| CfFields::empty());
-        let inner =
-            service_fn(|_req: Request<()>| async { Ok::<_, Infallible>(http::Response::new(())) });
-        let mut svc = layer.layer(inner);
-        let req = Request::builder().uri("/x.Svc/M").body(()).unwrap();
-        let resp = <_ as Service<Request<()>>>::call(&mut svc, req)
-            .await
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
             .unwrap();
-        assert_eq!(resp.status(), 200);
+        rt.block_on(async {
+            let layer = TracingLayer::new(|_: &Request<()>| CfFields::empty());
+            let inner = service_fn(|_req: Request<()>| async {
+                Ok::<_, Infallible>(http::Response::new(()))
+            });
+            let mut svc = layer.layer(inner);
+            let req = Request::builder().uri("/x.Svc/M").body(()).unwrap();
+            let resp = <_ as Service<Request<()>>>::call(&mut svc, req)
+                .await
+                .unwrap();
+            assert_eq!(resp.status(), 200);
+        });
     }
 }

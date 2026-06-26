@@ -34,7 +34,9 @@
 //! echo it; `GetDoc` additionally exercises body-aware Cedar.
 
 use std::convert::Infallible;
+use std::future::{Ready, ready};
 use std::sync::{Arc, OnceLock};
+use std::task::{Context as TaskContext, Poll};
 
 use bytes::Bytes;
 use cedar_policy::{Context, EntityUid, RestrictedExpression};
@@ -42,14 +44,15 @@ use connectrpc::{
     ConnectError, ConnectRpcService, ErrorCode, RequestContext, Response, Router, ServiceRequest,
     ServiceResult, UnaryRequest,
 };
-use connectrpc_cedar::{CedarRequest, action::action_from_path};
+use connectrpc_cedar::{CedarLayer, CedarRequest, action::action_from_path};
 use connectrpc_cedar_interceptor::CedarInterceptor;
 use connectrpc_cf_metrics::{MetricSink, MetricsInterceptor};
 use connectrpc_cf_rate_limit::{IpKeyExtractor, RateLimitLayer, RateLimiter};
 use connectrpc_cf_tracing::{CfFields, TracingLayer};
-use connectrpc_guard::{CedarAuthorizer, JwksVerifier, cedar_enforce, load_authorizer};
+use connectrpc_guard::{CedarAuthorizer, JwksVerifier, load_authorizer, session_to_cedar};
 use connectrpc_oidc::{OidcLayer, Session};
 use http::Response as HttpResponse;
+use http_body_util::Full;
 use tower::{Layer, Service};
 
 // Re-export so hosts don't need a direct connectrpc dep just to name the type.
@@ -60,6 +63,86 @@ pub mod proto {
 }
 
 use proto::demo::v1::*;
+
+/// A tiny `tower::Service` that answers `GET /healthz` with a real `200 OK`
+/// and passes every other request through to the inner service unchanged.
+///
+/// This is the ONE shared health mechanism for BOTH hosts. The native server
+/// and the CF Worker both call [`make`], so wiring it as the outermost layer
+/// here means neither host has to add a health route by hand. It is
+/// deliberately NOT `connectrpc-health`: that crate needs the `server` feature,
+/// which pulls `mio` and won't compile on `wasm32`. `/healthz` is not a Connect
+/// RPC path — without this short-circuit the request would fall through to the
+/// `ConnectRpcService` router, which has no `/healthz` route, and 404.
+#[derive(Clone)]
+struct HealthService<S> {
+    inner: S,
+}
+
+impl<S, B> Service<http::Request<B>> for HealthService<S>
+where
+    S: Service<http::Request<B>, Response = HttpResponse<ConnectRpcBody>, Error = Infallible>,
+{
+    type Response = HttpResponse<ConnectRpcBody>;
+    type Error = Infallible;
+    // An `Either`-style future with the immediate health reply in one arm and
+    // the inner service future in the other. Hand-rolled (not `futures::Either`,
+    // which isn't a dep) so it stays minimal and adds NO `Send` bound — the
+    // whole stack is `!Send` on wasm32, so a boxed-Send future wouldn't compile
+    // on the Worker.
+    type Future = HealthFuture<S::Future>;
+
+    fn poll_ready(&mut self, cx: &mut TaskContext<'_>) -> Poll<Result<(), Self::Error>> {
+        self.inner.poll_ready(cx)
+    }
+
+    fn call(&mut self, req: http::Request<B>) -> Self::Future {
+        if req.method() == http::Method::GET && req.uri().path() == "/healthz" {
+            let mut resp =
+                HttpResponse::new(ConnectRpcBody::Full(Full::new(Bytes::from_static(b"ok"))));
+            *resp.status_mut() = http::StatusCode::OK;
+            resp.headers_mut().insert(
+                http::header::CONTENT_TYPE,
+                http::HeaderValue::from_static("text/plain; charset=utf-8"),
+            );
+            HealthFuture::Health(ready(Ok(resp)))
+        } else {
+            HealthFuture::Inner(self.inner.call(req))
+        }
+    }
+}
+
+// Hand-rolled `Either` future for `HealthService`. Projection is sound because
+// neither arm is ever moved out: the enum is only ever pinned and polled in
+// place. We use `unsafe` pin-projection rather than pulling in a proc-macro dep.
+// `Inner(F)` carries the whole composed-stack future, so it dwarfs the tiny
+// `Health(Ready)` variant. Boxing `Inner` to equalize sizes would add a heap
+// allocation to EVERY real request just to serve the rare /healthz path — the
+// wrong trade for a liveness wrapper. Keep the size asymmetry on purpose.
+#[allow(clippy::large_enum_variant)]
+enum HealthFuture<F> {
+    Health(Ready<Result<HttpResponse<ConnectRpcBody>, Infallible>>),
+    Inner(F),
+}
+
+impl<F> std::future::Future for HealthFuture<F>
+where
+    F: std::future::Future<Output = Result<HttpResponse<ConnectRpcBody>, Infallible>>,
+{
+    type Output = Result<HttpResponse<ConnectRpcBody>, Infallible>;
+
+    fn poll(self: std::pin::Pin<&mut Self>, cx: &mut TaskContext<'_>) -> Poll<Self::Output> {
+        // SAFETY: we never move the inner field out of the pinned enum; we only
+        // re-pin it in place and poll it. The enum variant is never swapped
+        // after construction, so the projection is structurally pinned.
+        unsafe {
+            match self.get_unchecked_mut() {
+                HealthFuture::Health(fut) => std::pin::Pin::new_unchecked(fut).poll(cx),
+                HealthFuture::Inner(fut) => std::pin::Pin::new_unchecked(fut).poll(cx),
+            }
+        }
+    }
+}
 
 /// The Cedar authorizer, loaded once from the bundled demo policies.
 pub fn authorizer() -> Arc<CedarAuthorizer> {
@@ -223,19 +306,41 @@ where
         );
 
     // (4) PATH authz: /demo.v1.Api/X → Action::"demo.v1.Api.X" on Api::"main".
-    let cedar = cedar_enforce(Arc::clone(&authorizer), "main", service);
+    //
+    // GetDoc is deliberately EXEMPT from the path layer: its action
+    // (`demo.v1.Api.GetDoc`) is schema-scoped to a `Doc` resource and its only
+    // policy permits `Doc::"public"`, but the path layer can only address the
+    // route's `Api::"main"` resource — so evaluating GetDoc here would always
+    // default-deny (403) before the body-aware interceptor ever runs. Returning
+    // `None` for GetDoc makes the path layer pass it through; the
+    // `CedarInterceptor` (layer 5, post-decode) is the genuine, sole decider
+    // for GetDoc, reading `doc_id` from the body. Every other path is still
+    // path-authorized exactly as before via the shared `session_to_cedar`.
+    let cedar = CedarLayer::enforce(Arc::clone(&authorizer), |req: &http::Request<B>| {
+        if req.uri().path().ends_with("/GetDoc") {
+            return None;
+        }
+        session_to_cedar(req, "main")
+    })
+    .layer(service);
 
     // (3) OIDC AuthN: verify the Rauthy JWT → insert the Session. /healthz is public.
     let authed = OidcLayer::new(verifier)
         .skip_paths(["/healthz"])
         .layer(cedar);
 
-    // (2) Rate limit (host-injected limiter), then (1) tracing — outermost.
+    // (2) Rate limit (host-injected limiter), then (1) tracing.
     let limited = RateLimitLayer::enforce(limiter, IpKeyExtractor::new())
         .skip_paths(["/healthz"])
         .layer(authed);
 
     // (1) Transparent per-RPC tracing span. Native CF fields are empty (no
     // worker::Cf); on the Worker the host can wrap with its own Cf extractor.
-    TracingLayer::new(|_req: &http::Request<B>| CfFields::empty()).layer(limited)
+    let traced = TracingLayer::new(|_req: &http::Request<B>| CfFields::empty()).layer(limited);
+
+    // (0) OUTERMOST: real `GET /healthz` → 200 for BOTH hosts (native + Worker),
+    // wired once here so neither host adds a health route by hand. Everything
+    // else passes straight through to the tracing layer above. See
+    // [`HealthService`] for why this isn't `connectrpc-health` (wasm/mio).
+    HealthService { inner: traced }
 }
