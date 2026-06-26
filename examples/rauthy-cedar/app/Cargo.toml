@@ -44,6 +44,20 @@ buffa-types = "0.7"
 serde       = { version = "1", features = ["derive"] }
 serde_json  = "1"
 
+# gRPC server reflection: `buffa-descriptor` provides the `DescriptorPool` that
+# answers file/symbol/extension/list queries against the embedded
+# FileDescriptorSet (emitted by build.rs). This is the SAME descriptor engine
+# `connectrpc-reflection` uses internally — we reimplement only the thin query
+# bridge here so we don't depend on that crate (its manifest pulls `mio` via
+# `connectrpc = { features = ["server"] }`, breaking wasm32). `buffa-descriptor`
+# is `no-std`-categorized and pure-Rust, so it compiles cleanly on wasm32.
+# `reflect` exposes the `DescriptorPool` (file/symbol resolution); `std` for the
+# HashMap-backed indices. Both are pure-Rust and wasm-clean.
+buffa-descriptor = { version = "0.7", features = ["reflect"] }
+# `futures` for the reflection bidi-stream response: each request maps to one
+# response synchronously, so the output `Stream` is `Send` (wasm-safe).
+futures = { version = "0.3", default-features = false }
+
 [build-dependencies]
 connectrpc-build = "0.7"
 

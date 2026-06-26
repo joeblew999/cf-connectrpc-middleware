@@ -2,11 +2,14 @@
 
 The goal of this project it to make it as easy as possible to use ConnectRPC for Native and Cloudflare projects. As such it lives on the shoulders of the great work from Anthropic and Connyay. Then we have middleware for obvious integrations also, all working on Native and Cloudflare. Then we have KUMO GUI components to help use all the goodies in the project so that developers using ConnectRPC also have Web Kumo Componnets that work with them to make building large projects as DRY as possible, and we have example projects using it all to keep us honest.
 
-
 Composable Rust `tower` middleware for [ConnectRPC](https://connectrpc.com/)
 services that run **on Cloudflare Workers and natively from one codebase**.
 The flagship middleware is **Cedar authorization + Rauthy OIDC** — the shared
 auth layer for our projects.
+
+## CLAUDE
+
+Keep everthing coherent !!! DONT just make slop on layers of slop !!!
 
 ## How it works
 

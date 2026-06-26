@@ -19,7 +19,9 @@ request
   ▼ 3. OidcLayer                connectrpc-oidc            verify Rauthy JWT → insert Session
   ▼ 4. cedar_enforce            connectrpc-guard           PATH authz: /demo.v1.Api/X → Action X
   ▼ 5. ConnectRpcService        connectrpc                 + MetricsInterceptor (host sink)
-       └─ ApiImpl                                          + CedarInterceptor  (BODY-aware authz)
+       ├─ ApiImpl                                          + CedarInterceptor  (BODY-aware authz)
+       ├─ HealthImpl             grpc.health.v1.Health         public (skipped by 2–5)
+       └─ ReflectionImpl         grpc.reflection.v1.ServerReflection  public (skipped by 2–5)
 ```
 
 Layers 1–4 are `tower::Layer`s; the two interceptors (5) run on the Connect RPC
@@ -67,6 +69,31 @@ by `connectrpc-oidc`. The `permit` rules live in
 [`app/policies/demo.cedar`](app/policies/demo.cedar); the `Doc` entity + `GetDoc`
 action are in [`app/policies/demo.cedarschema`](app/policies/demo.cedarschema).
 
+## gRPC Health + Reflection (native **and** Cloudflare)
+
+The example serves the two standard gRPC infra services on the **same Router**
+as `demo.v1.Api`, so they run identically on native and on the Worker:
+
+- **`grpc.health.v1.Health`** — `Check` returns `SERVING`; `Watch` returns
+  `unimplemented` (the spec-sanctioned signal, and keeps the wasm32 build free
+  of a long-lived subscription future). Works with kubelet `grpc:` probes,
+  `grpc_health_probe`, service meshes. The plain-HTTP `GET /healthz` 200 route
+  is kept too for simple `httpGet:` liveness.
+- **`grpc.reflection.v1.ServerReflection`** — full bidi `ServerReflectionInfo`,
+  backed by a `FileDescriptorSet` `build.rs` emits (`emit_descriptor_set`) and
+  `lib.rs` embeds. Answers `list_services`, `file_by_filename`, and
+  `file_containing_symbol`, so `grpcurl`/`buf curl` can discover and call the
+  API with no local `.proto` files.
+
+Both are **public**: their RPC paths are in `make()`'s `PUBLIC_PATHS`, skipped
+by the OIDC/Cedar/rate-limit layers (a probe or discovery call carries no
+token). Crucially, the example does **not** depend on the `connectrpc-health` /
+`connectrpc-reflection` crates — their manifests over-declare `connectrpc =
+{ features = ["server"] }`, which pulls `mio` (`compile_error!` on wasm32). We
+compile the standard protos with our own `connectrpc-build` pipeline and
+reimplement the thin reflection query bridge over `buffa-descriptor` (the same
+descriptor engine, pure-Rust + wasm-clean) instead.
+
 ## Policy proof
 
 ```sh
@@ -104,13 +131,15 @@ limiter)` call that builds the entire middleware stack is **identical** in both
 nu examples/rauthy-cedar/server/serve.nu      # needs a local Docker daemon
 ```
 ```
-  ✓ healthz (no token)            [200]   skip path
-  ✓ Read no-token → AuthN deny    [401]   OidcLayer rejects (no token)
-  ✓ Read token → allow            [200]   verified + Cedar path allow
-  ✓ Admin admin-role → allow      [200]   token carries `admin`
-  ✓ Super no-superuser → deny     [403]   Cedar permission_denied
-  ✓ GetDoc(public) → body allow   [200]   CedarInterceptor reads doc_id
-  ✓ GetDoc(secret) → body deny    [403]   CedarInterceptor reads doc_id
+  ✓ healthz (no token)                  [200]            plain-HTTP liveness, skip path
+  ✓ Health/Check (no token) → public    [200]            gRPC health service, public
+  ✓ Read no-token → AuthN deny          [401]            OidcLayer rejects (no token)
+  ✓ Read token → allow                  [200]            verified + Cedar path allow
+  ✓ Admin admin-role → allow            [200]            token carries `admin`
+  ✓ Super no-superuser → deny           [403]            Cedar permission_denied
+  ✓ GetDoc(public) → body allow         [200]            CedarInterceptor reads doc_id
+  ✓ GetDoc(secret) → body deny          [403]            CedarInterceptor reads doc_id
+  ✓ Health/Check body is SERVING        [{"status":"SERVING"}]
 ==> SERVER E2E OK
 ```
 

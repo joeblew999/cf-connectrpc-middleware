@@ -7,13 +7,14 @@
 #   nu examples/rauthy-cedar/server/serve.nu        # needs a local Docker daemon
 #
 # Cases asserted:
-#   /healthz                      (no token)     → 200   (skip path)
-#   /demo.v1.Api/Read             (no token)     → 401   (OidcLayer: AuthN)
-#   /demo.v1.Api/Read             (admin token)  → 200   (CedarLayer: path allow)
-#   /demo.v1.Api/Admin            (admin token)  → 200   (allow — has admin role)
-#   /demo.v1.Api/Super            (admin token)  → 403   (deny — lacks superuser)
-#   /demo.v1.Api/GetDoc {public}  (admin token)  → 200   (CedarInterceptor: body allow)
-#   /demo.v1.Api/GetDoc {secret}  (admin token)  → 403   (CedarInterceptor: body deny)
+#   /healthz                          (no token)     → 200      (plain-HTTP liveness, skip path)
+#   grpc.health.v1.Health/Check       (no token)     → SERVING  (gRPC health service, public)
+#   /demo.v1.Api/Read                 (no token)     → 401      (OidcLayer: AuthN)
+#   /demo.v1.Api/Read                 (admin token)  → 200      (CedarLayer: path allow)
+#   /demo.v1.Api/Admin                (admin token)  → 200      (allow — has admin role)
+#   /demo.v1.Api/Super                (admin token)  → 403      (deny — lacks superuser)
+#   /demo.v1.Api/GetDoc {public}      (admin token)  → 200      (CedarInterceptor: body allow)
+#   /demo.v1.Api/GetDoc {secret}      (admin token)  → 403      (CedarInterceptor: body deny)
 
 const RP = 8088   # rauthy port
 const SP = 8090   # server port
@@ -80,6 +81,11 @@ def main [] {
   let ct = "content-type: application/json"
   let cases = [
     [(code [$"http://localhost:($SP)/healthz"])                                                              "200" "healthz (no token)"]
+    # gRPC Health service (grpc.health.v1.Health/Check): a public Connect unary
+    # call (no token) — returns 200 even though it's served on the SAME guarded
+    # Router as the demo API, because its path is in PUBLIC_PATHS (skipped by
+    # OIDC/Cedar/rate-limit). The SERVING body is asserted separately below.
+    [(code [-H $ct -d "{}" -X POST $"http://localhost:($SP)/grpc.health.v1.Health/Check"])                   "200" "Health/Check (no token) → public 200"]
     # No token: OidcLayer rejects (401) BEFORE the codec, so this stays 401
     # whether or not a body is sent. Send the well-formed body anyway so the
     # only difference from the allow case is the missing Authorization header.
@@ -95,6 +101,17 @@ def main [] {
   mut fail = 0
   for c in $cases {
     if $c.0 == $c.1 { print $"  ✓ ($c.2)  [($c.0)]" } else { print $"  ✗ ($c.2)  expected ($c.1) got ($c.0)"; $fail = $fail + 1 }
+  }
+
+  # Assert the gRPC Health service actually answers SERVING (not just 200): the
+  # Connect JSON response body for grpc.health.v1.Health/Check is
+  # {"status":"SERVING"}. This proves the generated Health trait impl is wired,
+  # served on the same Router as the demo API, and reachable without a token.
+  let health_body = (^curl -s -H $ct -d "{}" -X POST $"http://localhost:($SP)/grpc.health.v1.Health/Check")
+  if ($health_body | str contains "SERVING") {
+    print $"  ✓ Health/Check body is SERVING  [($health_body)]"
+  } else {
+    print $"  ✗ Health/Check body expected SERVING got ($health_body)"; $fail = $fail + 1
   }
 
   job kill $job
