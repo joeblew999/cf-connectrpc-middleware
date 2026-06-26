@@ -169,7 +169,8 @@ impl JwksVerifier {
         }
 
         let header: JwtHeader = serde_json::from_slice(
-            &B64.decode(h).map_err(|_| JwksError::Malformed("header b64"))?,
+            &B64.decode(h)
+                .map_err(|_| JwksError::Malformed("header b64"))?,
         )
         .map_err(|_| JwksError::Malformed("header json"))?;
 
@@ -187,7 +188,8 @@ impl JwksVerifier {
         verify_sig(key, &header.alg, signing_input.as_bytes(), &sig)?;
 
         let claims: Claims = serde_json::from_slice(
-            &B64.decode(p).map_err(|_| JwksError::Malformed("payload b64"))?,
+            &B64.decode(p)
+                .map_err(|_| JwksError::Malformed("payload b64"))?,
         )
         .map_err(|_| JwksError::Malformed("payload json"))?;
 
@@ -214,24 +216,33 @@ impl JwksVerifier {
 fn verify_sig(key: &VerifyKey, alg: &str, msg: &[u8], sig: &[u8]) -> Result<(), JwksError> {
     use rsa::signature::Verifier as _;
     match (key, alg) {
-        (VerifyKey::Rsa(pk), "RS256") => rsa::pkcs1v15::VerifyingKey::<sha2::Sha256>::new(pk.clone())
-            .verify(
-                msg,
-                &rsa::pkcs1v15::Signature::try_from(sig).map_err(|_| JwksError::BadSignature)?,
-            )
-            .map_err(|_| JwksError::BadSignature),
-        (VerifyKey::Rsa(pk), "RS384") => rsa::pkcs1v15::VerifyingKey::<sha2::Sha384>::new(pk.clone())
-            .verify(
-                msg,
-                &rsa::pkcs1v15::Signature::try_from(sig).map_err(|_| JwksError::BadSignature)?,
-            )
-            .map_err(|_| JwksError::BadSignature),
-        (VerifyKey::Rsa(pk), "RS512") => rsa::pkcs1v15::VerifyingKey::<sha2::Sha512>::new(pk.clone())
-            .verify(
-                msg,
-                &rsa::pkcs1v15::Signature::try_from(sig).map_err(|_| JwksError::BadSignature)?,
-            )
-            .map_err(|_| JwksError::BadSignature),
+        (VerifyKey::Rsa(pk), "RS256") => {
+            rsa::pkcs1v15::VerifyingKey::<sha2::Sha256>::new(pk.clone())
+                .verify(
+                    msg,
+                    &rsa::pkcs1v15::Signature::try_from(sig)
+                        .map_err(|_| JwksError::BadSignature)?,
+                )
+                .map_err(|_| JwksError::BadSignature)
+        }
+        (VerifyKey::Rsa(pk), "RS384") => {
+            rsa::pkcs1v15::VerifyingKey::<sha2::Sha384>::new(pk.clone())
+                .verify(
+                    msg,
+                    &rsa::pkcs1v15::Signature::try_from(sig)
+                        .map_err(|_| JwksError::BadSignature)?,
+                )
+                .map_err(|_| JwksError::BadSignature)
+        }
+        (VerifyKey::Rsa(pk), "RS512") => {
+            rsa::pkcs1v15::VerifyingKey::<sha2::Sha512>::new(pk.clone())
+                .verify(
+                    msg,
+                    &rsa::pkcs1v15::Signature::try_from(sig)
+                        .map_err(|_| JwksError::BadSignature)?,
+                )
+                .map_err(|_| JwksError::BadSignature)
+        }
         (VerifyKey::Ed(vk), "EdDSA") => {
             use ed25519_dalek::Verifier as _;
             let sb: [u8; 64] = sig.try_into().map_err(|_| JwksError::BadSignature)?;
@@ -269,7 +280,10 @@ mod tests {
         );
         let signing_input = format!("{header}.{payload}");
         let sig = sk.sign(signing_input.as_bytes());
-        (format!("{signing_input}.{}", B64.encode(sig.to_bytes())), jwks)
+        (
+            format!("{signing_input}.{}", B64.encode(sig.to_bytes())),
+            jwks,
+        )
     }
 
     #[test]
@@ -313,7 +327,10 @@ mod tests {
     fn rejects_wrong_issuer() {
         let (token, jwks) = signed_token(ISS, 10_000);
         let v = JwksVerifier::from_jwks_json("https://evil/auth/v1/", None, &jwks).unwrap();
-        assert!(matches!(v.verify(&token, 9_000), Err(JwksError::WrongIssuer)));
+        assert!(matches!(
+            v.verify(&token, 9_000),
+            Err(JwksError::WrongIssuer)
+        ));
     }
 
     #[test]

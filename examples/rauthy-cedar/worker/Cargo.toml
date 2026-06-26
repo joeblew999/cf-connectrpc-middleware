@@ -17,13 +17,46 @@ crate-type = ["cdylib"]
 rauthy-cedar-app = { path = "../app" }
 # worker-jwks turns on the worker::Fetch JWKS helper (the one platform diff).
 connectrpc-oidc = { path = "../../../crates/connectrpc-oidc", features = ["worker-jwks"] }
+# The two CF-specific deps the Worker injects into make(): the MetricSink trait
+# (implemented over Analytics Engine) and the RateLimiter trait (over CF Rate
+# Limiting). The native server passes NoopSink / AllowAll from these same crates.
+connectrpc-cf-metrics    = { path = "../../../crates/connectrpc-cf-metrics" }
+connectrpc-cf-rate-limit = { path = "../../../crates/connectrpc-cf-rate-limit" }
 
 worker        = { version = "0.8", features = ["http"] }
 worker-macros = { version = "0.8", features = ["http"] }
+
+# connectrpc-workers (connyay) — the CLIENT half of "Connect on Workers".
+# `FetchTransport` wraps the global `worker::Fetch` and implements
+# `connectrpc::client::ClientTransport`, so the generated `ApiClient<T>` (from
+# the shared app's proto) calls a Connect service straight from the Worker. We
+# only use the trait-based transport surface, so connectrpc stays
+# `default-features = false` (NO `client` feature — that one pulls in
+# hyper/tokio-net and won't link on wasm32). Pinned to the same 0.7 main commit
+# the rest of the workspace tracks.
+connectrpc-workers = { git = "https://github.com/connyay/connectrpc-workers", rev = "a366077" }
+# Direct connectrpc dep only to name `client::ClientConfig` for the demo client.
+# Matches the workspace pin (0.7, default-features off); the `client` (concrete
+# hyper transports) module surface — ClientConfig/ClientTransport/call_unary —
+# is unconditional, so no extra feature is needed.
+connectrpc    = { version = "0.7", default-features = false }
 http  = "1"
+# Used only by the /client-demo route to build a plain JSON `ConnectRpcBody::Full`
+# response (both pure-Rust, wasm-safe; the same crates the shared app uses).
+http-body-util = "0.1"
+bytes = "1"
 tower = { version = "0.5", default-features = false }
 # tokio sync::OnceCell for the per-isolate JWKS cache (no runtime needed).
 tokio = { version = "1", default-features = false, features = ["sync"] }
+# async-trait for the CF MetricSink / RateLimiter impls (matches the traits).
+async-trait = "0.1"
+
+# False positive: worker-macros provides the `#[event(fetch)]` attribute macro
+# (the Worker entrypoint, re-exported through `worker::event`). It's an
+# attribute-only crate so machete sees no path reference — but it must stay or
+# the Worker has no entrypoint and won't link.
+[package.metadata.cargo-machete]
+ignored = ["worker-macros"]
 
 [profile.release]
 opt-level = "z"

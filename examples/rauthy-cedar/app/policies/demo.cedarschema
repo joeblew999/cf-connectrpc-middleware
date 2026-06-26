@@ -5,6 +5,10 @@
 
 entity User;
 entity Api;
+// Doc is the BODY-AWARE resource: the CedarInterceptor reads `doc_id` from the
+// decoded GetDocRequest and authorizes against the specific Doc entity, which
+// the path-based CedarLayer can never see.
+entity Doc;
 
 action "demo.v1.Api.Read" appliesTo {
   principal: User, resource: Api,
@@ -18,5 +22,10 @@ action "demo.v1.Api.Admin" appliesTo {
 
 action "demo.v1.Api.Super" appliesTo {
   principal: User, resource: Api,
+  context: { roles: Set<String>, scopes: Set<String> }
+};
+
+action "demo.v1.Api.GetDoc" appliesTo {
+  principal: User, resource: Doc,
   context: { roles: Set<String>, scopes: Set<String> }
 };

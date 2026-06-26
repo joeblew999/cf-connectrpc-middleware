@@ -11,10 +11,9 @@
 //! **Generic over the inserted type `T`** — use the shared
 //! [`connectrpc_tower_kit::Session`] for the common case, or your own richer
 //! session struct (the example-multitenant-worker inserts a typed
-//! `SessionContext` carrying billing/org/role — no downgrade to generic strings).
+//! `Session` carrying billing/org/role — no downgrade to generic strings).
 //!
-//! **Two modes** (matching the family's soft-middleware pattern, MIDDLEWARES.md
-//! §6 pattern 3):
+//! **Two modes** (matching the family's soft-middleware pattern):
 //! - [`enforce`](SessionLayer::new) (default) — reject (`401`) when the token is
 //!   missing/invalid. Like `OidcLayer`.
 //! - [`decode`](SessionLayer::decode) — soft: insert `T` if a valid token is
@@ -23,7 +22,7 @@
 //!
 //! ```ignore
 //! // macaroon, soft (the example-multitenant-worker pattern):
-//! SessionLayer::new(move |tok| verify_macaroon(&keyring, tok).ok())  // -> Option<SessionContext>
+//! SessionLayer::new(move |tok| verify_macaroon(&keyring, tok).ok())  // -> Option<Session>
 //!     .decode()
 //!     .layer(service);
 //!
@@ -38,7 +37,7 @@ use std::sync::Arc;
 use std::task::{Context as TaskContext, Poll};
 
 use connectrpc::{ConnectError, ConnectRpcBody};
-use connectrpc_tower_kit::{deny_response, ShortCircuitFuture};
+use connectrpc_tower_kit::{ShortCircuitFuture, deny_response};
 use http::Response;
 use tower::{Layer, Service};
 use tracing::warn;
@@ -187,15 +186,19 @@ mod tests {
     use bytes::Bytes;
     use http_body_util::Full;
     use std::convert::Infallible;
-    use tower::{service_fn, ServiceExt};
+    use tower::{ServiceExt, service_fn};
 
     // Inner service: 200 if a Session reached request extensions, 250 if not.
     // So the response status alone proves whether the layer inserted a Session.
-    fn inner(
-    ) -> impl Service<http::Request<()>, Response = Response<ConnectRpcBody>, Error = Infallible> + Clone
+    fn inner()
+    -> impl Service<http::Request<()>, Response = Response<ConnectRpcBody>, Error = Infallible> + Clone
     {
         service_fn(|req: http::Request<()>| async move {
-            let status = if req.extensions().get::<Session>().is_some() { 200 } else { 250 };
+            let status = if req.extensions().get::<Session>().is_some() {
+                200
+            } else {
+                250
+            };
             Ok::<_, Infallible>(
                 Response::builder()
                     .status(status)
@@ -215,7 +218,10 @@ mod tests {
 
     // The project's auth: "good" → a session; anything else → reject.
     fn verify(tok: &str) -> Option<Session> {
-        (tok == "good").then(|| Session { subject: "u1".into(), ..Default::default() })
+        (tok == "good").then(|| Session {
+            subject: "u1".into(),
+            ..Default::default()
+        })
     }
 
     async fn status<S>(svc: S, r: http::Request<()>) -> u16

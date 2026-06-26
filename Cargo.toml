@@ -1,9 +1,8 @@
 # Workspace root.
 #
-# See MIDDLEWARES.md (esp. §6 patterns and the CF-ops family) and CLAUDE.md
-# for the family plan: connectrpc-tower-kit is the shared foundation,
-# connectrpc-cedar-* crates depend on it, and future CF-ops middlewares
-# (connectrpc-cf-tracing, connectrpc-cf-metrics, etc.) join this workspace.
+# connectrpc-tower-kit is the shared foundation; the connectrpc-cedar-*
+# crates depend on it, and the CF-ops middlewares (connectrpc-cf-tracing,
+# connectrpc-cf-metrics, connectrpc-cf-rate-limit) are members alongside them.
 #
 # Resolver "2" so cdylib feature-unification matches the wasm32 build path
 # in downstream Workers.
@@ -39,10 +38,13 @@ authors = ["Joe Blew <gedw99@gmail.com>"]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/joeblew999/cf-connectrpc-middleware"
 
-# Shared dep pins. MUST match .src/example-multitenant-worker/Cargo.toml —
-# see CLAUDE.md "Version pins". Diverging here breaks composition with
-# downstream Workers because Cargo can't unify feature sets across the
-# wasm32 build.
+# Shared dep pins — this workspace is the single source of truth for pins.
+# `connectrpc` = anthropics/connect-rust, pinned to 0.7 (current release);
+# message types come from buffa (transitive). `default-features = false`
+# keeps the wasm32 build lean — the Router is a `tower::Service` without
+# the hyper `server` feature, so it runs natively AND on Cloudflare Workers.
+# NOTE: .src/example-multitenant-worker (connyay fork) still pins 0.6 and
+# needs bumping to 0.7 before it builds against these crates.
 [workspace.dependencies]
 connectrpc       = { version = "0.7", default-features = false }
 cedar-policy     = "4"

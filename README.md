@@ -1,231 +1,107 @@
 # cf-connectrpc-middleware
 
-ConnectRPC middleware for Cloudflare Workers in Rust. Built to compose with
-[connyay/connectrpc-workers](https://github.com/connyay/connectrpc-workers) (the
-server-side ConnectRPC runtime for Workers).
+The goal of this project it to make it as easy as possible to use ConnectRPC for Native and Cloudflare projects. As such it lives on the shoulders of the great work from Anthropic and Connyay. Then we have middleware for obvious integrations also, all working on Native and Cloudflare. Then we have KUMO GUI components to help use all the goodies in the project so that developers using ConnectRPC also have Web Kumo Componnets that work with them to make building large projects as DRY as possible, and we have example projects using it all to keep us honest.
 
-> ### 📚 [MIDDLEWARES.md](./MIDDLEWARES.md) — the catalog
->
-> Comprehensive reference for **every Connect-RPC middleware on
-> GitHub** we could find, with per-entry verdict on Cloudflare
-> Workers (`wasm32-unknown-unknown`) compatibility. Six middleware
-> surfaces, six recurring design patterns, ~30 prior-art entries
-> categorized by tier. **If you searched for "connect-rpc rust
-> middleware", "connectrpc tower layer", "cloudflare workers connect
-> rpc", or "cedar + tower" — start there.**
 
-The current implementation focus is **Cedar policy authorization** —
-a Rust `tower::Layer` (the `connectrpc-cedar` crate) that drops into
-existing `connectrpc-workers`-based Workers with 2 lines of glue
-code. **CF-ops middleware** (tracing — shipped today; metrics,
-rate-limit, idempotency, … — planned) joins the same workspace on
-the shared `connectrpc-tower-kit`. See the
-[crate table below](#crates-in-this-workspace).
+Composable Rust `tower` middleware for [ConnectRPC](https://connectrpc.com/)
+services that run **on Cloudflare Workers and natively from one codebase**.
+The flagship middleware is **Cedar authorization + Rauthy OIDC** — the shared
+auth layer for our projects.
 
-The crates are the goal. The deployed Worker + React frontend
-under `.src/example-multitenant-worker/` exists as the reference shape
-each layer must compose with cleanly.
+## How it works
 
-> ### 🔑 The auth stack, end to end — [docs/AUTH-STACK.md](./docs/AUTH-STACK.md)
->
-> This repo is the **one shared foundation for every project's auth**:
-> the `connectrpc-oidc` + `connectrpc-cedar` crates, the
-> [`kumo-connectrpc-kit`](./packages/kumo-connectrpc-kit) client, the
-> `rauthy-cedar` example, **how to run the whole thing locally**
-> (`mise run stack:local` — Rauthy on Docker + a real token driven
-> through oidc→cedar, no spend), how to deploy it (`mise run deploy:stack`),
-> and **how to add auth to a new project**
-> ([docs/NEW-PROJECT.md](./docs/NEW-PROJECT.md)). Rauthy itself runs from
-> [`vm-uncloud`](https://github.com/joeblew999/vm-uncloud)'s `recipes/rauthy/`
-> (the infra SSOT); this repo orchestrates it. *(Folded in from the old
-> standalone `iam` repo, 2026-06-23.)*
+The [`connectrpc`](https://github.com/anthropics/connect-rust) runtime gives a
+`tower::Service` that compiles to `wasm32`. We wrap it in tower layers:
 
-## Crates in this workspace
+```
+request → AuthN (verify token → Session) → AuthZ (Cedar allow/deny) → CF-ops → your service
+```
 
-CF binding status is part of every crate's identity — what the user
-needs to provision in `wrangler.toml` before adopting it. Three
-categories:
+The same stack runs two ways, unchanged:
 
-- **`generic`** — works on any `connectrpc` host. No CF-specific data,
-  no CF binding. `connectrpc-cedar` is the canonical example: it reads
-  whatever the consumer's `extractor` pulls out of `req.extensions()`.
-- **`cf-context`** — reads CF-Workers-specific runtime data
-  (`request.cf`, `cf-ray` header, etc.) but declares no CF binding.
-  Runs natively on a Worker; falls back to empty fields elsewhere.
-- **`cf-binding: <kind>`** — declares a CF binding the consumer must
-  provision (Analytics Engine, Rate Limiting, KV namespace, …). Listed
-  per crate.
+- **Native** — served by `hyper`.
+- **Cloudflare Worker** — the service is driven by the Worker `fetch` event.
 
-| Crate | Surface | CF status | Status |
-| --- | --- | --- | --- |
-| [`connectrpc-tower-kit`](./crates/connectrpc-tower-kit) | shared primitives | **`generic`** | shipped |
-| [`connectrpc-cedar`](./crates/connectrpc-cedar) | tower::Layer (short-circuit) | **`generic`** | shipped |
-| [`connectrpc-cf-tracing`](./crates/connectrpc-cf-tracing) | tower::Layer (transparent) | **`cf-context`** (reads `request.cf` + `cf-ray`) | shipped |
-| [`connectrpc-cf-rate-limit`](./crates/connectrpc-cf-rate-limit) | tower::Layer (short-circuit) | **`cf-binding: Rate Limiting`** | shipped |
-| [`connectrpc-cf-metrics`](./crates/connectrpc-cf-metrics) | tower::Layer (transparent) | **`cf-binding: Analytics Engine`** | shipped |
-| `connectrpc-cedar-core` | library | `generic` | planned |
-| `connectrpc-cedar-interceptor` | Interceptor (two-trait split) | `generic` | planned (blocked on connectrpc `Interceptor` release) |
-| `connectrpc-cedar-macros` | proc-macro decorator | `generic` | planned |
-| `connectrpc-cf-trace-context` | tower::Layer (transparent) | `cf-context` (propagates `cf-ray`) | planned |
-| `connectrpc-cf-access` | tower::Layer (short-circuit) | `cf-context` (verifies CF Access JWT) | planned |
-| `connectrpc-cf-idempotency` | tower::Layer (short-circuit) | **`cf-binding: KV namespace`** | planned |
+Proven side-by-side in [`examples/rauthy-cedar/`](./examples/rauthy-cedar):
+one shared app, hosted by `server/` (native) and `worker/` (edge).
 
-Naming rule: **generic crates don't have a `cf-` infix** (`connectrpc-cedar`,
-`connectrpc-cedar-*`). **CF-tied crates have `connectrpc-cf-<function>`**
-(`connectrpc-cf-tracing`, `connectrpc-cf-metrics`). See
-[MIDDLEWARES.md](./MIDDLEWARES.md) §1 for the six middleware surfaces and
-§3 for the canonical stack ordering.
+## Built on
 
-## Related repositories
+A thin layer — the heavy lifting is upstream, all on the `0.7` line:
 
-Sibling joeblew999 Rust-on-Cloudflare-Workers projects (not dependencies of
-this crate):
-
-- **[workers-rs-util](https://github.com/joeblew999/workers-rs-util)**: `cloudflare-shell` FS abstraction (native + Cloudflare) plus nushell plugins. Its `nu_plugin_cedar` shares the same `cedar-policy` crate this layer uses.
-- **[http-nu](https://github.com/joeblew999/http-nu)**: Nushell-scriptable, cross.stream-powered HTTP server.
-- **[xs](https://github.com/joeblew999/xs)**: cross.stream local-first event store (powers http-nu).
-
-## Live demo
-
-Deployed at https://workers-multitenant.gedw99.workers.dev/
-
-The deploy serves one **demo scenario** at a time. A scenario is the
-theme + the demo accounts + the seed data it expects, picked at build
-time via `VITE_SEED_SCENARIO`. Two scenarios exist today:
-
-| Scenario | Brand | Demo accounts | Domain |
-| --- | --- | --- | --- |
-| `editorial` | Dark, red accent, Doto pixel display | alice / bob / carol / dave | Acme Corp multitenancy |
-| `remysport` | Paper bg, orange accent, Inter | coach / captain / scout / manager | Bangkok Suns basketball club |
-
-| Surface | URL | What's there |
+| Repo | Role | Version |
 | --- | --- | --- |
-| **Login** | `/login` | Credential form + one-click sign-in cards for the active scenario's demo accounts |
-| **Preview** | `/preview` | Kumo component showcase + theme A/B toggle (editorial / remysport / kumo / fedramp) |
-| **Dashboard** (post-login) | `/` | Authed app — scope switcher, member tables, billing, invitations |
+| [anthropics/connect-rust](https://github.com/anthropics/connect-rust) | ConnectRPC runtime; its `Router` is the `tower::Service` we wrap; compiles to wasm | `connectrpc 0.7` |
+| [anthropics/buffa](https://github.com/anthropics/buffa) | protobuf codec `connectrpc` uses (pure-Rust, wasm-clean) | `0.7.1` (transitive) |
+| [connyay/connectrpc-workers](https://github.com/connyay/connectrpc-workers) | Workers **client** transport — the only way a Worker can *call* a Connect service | `0.7` (main; no release tag yet) |
+| [cloudflare/workers-rs](https://github.com/cloudflare/workers-rs) | the `worker` Workers binding: `fetch` transport + AE/Rate-Limit/KV bindings | `0.8` |
+| [cedar-policy/cedar](https://github.com/cedar-policy/cedar) | authz engine; runs inside the Worker | `4` |
+| [sebadob/rauthy](https://github.com/sebadob/rauthy) | OIDC identity provider (runs server-side via [vm-uncloud](https://github.com/joeblew999/vm-uncloud)) | `0.35.2` |
 
-**Tester URL: `/login`.** Color-coded sign-in cards, no copy-paste creds
-needed. Shared password is `demo-password-123`. After sign-out you're
-bounced back to `/preview` (because dev accounts are still enabled).
+The root `Cargo.toml [workspace.dependencies]` is the source of truth for pins.
+**A pin is a snapshot, not a freeze — we upgrade when an upstream we need moves.**
 
-All seed emails use the `.example` TLD per RFC 6761 — guaranteed never
-to collide with real users, so the seed is safe in production.
+## The crates
 
-To check what scenario is currently live:
+All are `tower` layers (or interceptors) over a `connectrpc` service. An AuthN
+layer puts a `Session` into request extensions; the AuthZ layer reads it and
+allows or denies.
+
+| Crate | Does |
+| --- | --- |
+| `connectrpc-tower-kit` | shared primitives + the `Session` (AuthN→AuthZ contract) |
+| `connectrpc-oidc` | AuthN: verify a Rauthy/OIDC JWT → `Session` |
+| `connectrpc-session` | AuthN: non-OIDC (opaque token / API key / macaroon) → `Session` |
+| `connectrpc-cedar` | AuthZ: Cedar policy check (allow / deny) |
+| `connectrpc-cedar-interceptor` | AuthZ: body-aware variant on the `Interceptor` surface |
+| `connectrpc-guard` | convenience: bundles OIDC → Cedar |
+| `connectrpc-cf-tracing` / `-metrics` / `-rate-limit` | CF-ops: tracing, Analytics-Engine metrics, rate limiting |
+
+Why Cedar: multi-tenant authz is a ReBAC problem; Cedar expresses it as ~5-line
+policies, type-checked against a schema, evaluated inside the Worker (no extra
+service). Policies version alongside the code under `examples/*-policies/`.
+
+## Run it
+
+```sh
+mise run cargo:test                              # native tests
+nu examples/rauthy-cedar/server/serve.nu         # rauthy-cedar example, native (hyper); needs Docker
+cd examples/rauthy-cedar/worker && wrangler dev  # rauthy-cedar example, on a CF Worker (wrangler)
+mise run stack:local                             # whole auth stack on Docker: Rauthy + a real token → oidc→cedar (no spend)
+mise tasks                                        # everything else
+```
+
+See [`examples/rauthy-cedar/README.md`](./examples/rauthy-cedar/README.md) for
+both run paths and the expected output.
+
+The `mt:*` mise tasks target a separate multitenant demo (a vendored `.src/`
+worker), not the rauthy-cedar example.
+
+## Dependency source (`.src/`)
+
+`.src/` (gitignored) holds the upstream source we read, pinned so it can't go
+stale or drift from what we compile:
+
+- `mise run src:sync` — checks out each pinned upstream: `connect-rust` and
+  `buffa` at the git **tag** matching `Cargo.lock`; `connectrpc-workers` at a
+  fixed **commit** (it has no 0.7 release tag yet).
+- `mise run src:check` — verifies each clone is at its pin; flags any that drifted.
+
+**Never trust a clone for version facts** — check upstream `main`/crates.io.
+`cargo update` refreshes the lock in-semver (cheap freshness).
+
+> **Known blocker:** [mathematic-inc/protovalidate-buffa](https://github.com/mathematic-inc/protovalidate-buffa)
+> (request validation) is still on `buffa 0.6`; can't adopt until it bumps to 0.7.
+
+## Layout
 
 ```
-curl -s https://workers-multitenant.gedw99.workers.dev/ | grep data-theme
+crates/      the tower middleware crates (above)
+examples/    rauthy-cedar (native + worker proof) · *-policies (Cedar policy sets)
+packages/    kumo-connectrpc-kit (TS client) + frontend
+scripts/     nushell task implementations
+.src/        gitignored: pinned upstream source (src:sync) + connyay reference workers
 ```
 
-To flip the deploy between scenarios:
-
-```
-mise run worker:deploy            && mise run seed:prod            # editorial
-mise run worker:deploy:remysport  && mise run seed:prod:remysport  # remysport
-```
-
-The deploy + seed pair MUST match — see [SEED.md §7](./SEED.md).
-
-### Running locally
-
-| Surface | URL | When |
-| --- | --- | --- |
-| Vite (HMR, HTTPS, self-signed) | https://localhost:5173 | Real browser dev (`mise run dev:up`) |
-| Vite (HTTP, no cert) | http://localhost:5175 | Headless screenshot tools (`mise run kumo:web-dev-http`) |
-| Wrangler dev | https://localhost:8787 | Production-like wasm path (`mise run worker:dev`) |
-
-To switch the local dev server scenario, set the env at startup:
-
-```
-VITE_SEED_SCENARIO=remysport pnpm dev          # in .src/example-multitenant-worker/web-kumo/
-SCENARIO=remysport mise run seed:dev           # seeds local D1 with matching users
-```
-
-For all `mise run …` tasks, see `mise tasks`.
-
-To hide demo accounts on a real-project deploy: set
-`VITE_SHOW_TEST_ACCOUNTS=false` in `.env.production`. The DevAccounts
-panel hides and sign-out reverts to `/login` (instead of `/preview`).
-
-## Intent
-
-A `tower::Layer` that runs Cedar policy evaluation on every Connect
-RPC call. The layer reads a `SessionContext` from the request
-extensions (populated by an upstream `AuthLayer`), maps the URL path
-`/pkg.Service/Method` to a Cedar `Action`, calls
-`cedar_policy::Authorizer::is_authorized`, and short-circuits with
-`permission_denied` on `Decision::Deny`.
-
-The repo proves it composes with these existing pieces:
-
-- [`connyay/connectrpc-workers`](https://github.com/connyay/connectrpc-workers)
-  — Cloudflare Workers implementation of Connect RPC, with codegen and
-  React clients.
-- [`connyay/example-multitenant-worker`](https://github.com/connyay/example-multitenant-worker)
-  — multitenant scaffold (billing accounts + orgs + invitations);
-  cloned under `.src/` and forked to a `cedar` branch.
-- [`connyay/example-connectrpc-worker`](https://github.com/connyay/example-connectrpc-worker)
-  — minimal RPC scaffold for the next-test case.
-
-## Why Cedar
-
-- **Multi-tenant authz is a ReBAC problem.** Rules like "an owner of
-  the billing account can act on its orgs" tangle quickly when
-  hand-rolled. Cedar expresses them as ~5-line policies.
-- **Policies live separately from code.** `.cedar` files version
-  alongside the Rust source, type-checked against a schema by
-  `cedar validate` — typos and dangling actions fail at lint time,
-  not in production.
-- **Wasm-native, microsecond decisions.** Cedar's evaluator runs
-  inside the Worker. No external service, no extra round trip.
-- **Composes cleanly with the macaroon session.** The example's
-  `AuthLayer` already pins (billing, org, role) on the verified session
-  at request-issue time. Our `CedarLayer` reads that pinned scope and
-  passes it through Cedar's `context` — no DB lookup at authorization
-  time. Macaroon attenuates *what scope a token covers*; Cedar evaluates
-  *whether the action is allowed at that scope*. Two layers, each doing
-  what it does best. See [examples/multitenant-policies/](examples/multitenant-policies/README.md).
-
-Reference: [Cedar policy language](https://github.com/cedar-policy/cedar)
-has a browser wasm and runs on Cloudflare too.
-[cedar-for-agents](https://github.com/cedar-policy/cedar-for-agents)
-may be useful for agent-driven policy authoring.
-
-## Frontend: React + Kumo
-
-`.src/example-multitenant-worker/web-kumo/` is a React app built on
-[Kumo](https://kumo-ui.com/) primitives. Every scenario declares its
-own theme in `scenarios/<name>/scenario.mjs`; the CSS generator
-(`mise run kumo:theme-gen`) emits per-scenario palette + Kumo-token
-mapping files into `src/styles/`.
-
-The whole demo (theme + DevAccounts + backend seed) is consolidated
-into one file per scenario — auto-discovered by both Vite and the
-seed scripts. Add a new scenario: `mkdir scenarios/<name>` + write
-one `.mjs` file. See [SEED.md](./SEED.md) for the contract.
-
-The original `web/` frontend lives alongside `web-kumo/` and is the
-upstream baseline (red `#d71921` accent, Space Grotesk / Doto type).
-The `web-kumo/` editorial scenario reproduces that look on Kumo
-primitives.
-
-## Tooling
-
-- **mise** in the root manages all dependencies (rust, node, wrangler,
-  fnox, cedar CLI) and orchestrates tasks. `mise tasks` lists them.
-- **nushell** for all task scripting (`shell = "nu -c"` in `mise.toml`).
-- **fnox** + macOS keychain for secrets (Cloudflare API token, macaroon
-  root key, deployed Worker URL). Per-repo `fnox.toml` is the contract;
-  values live once in the keychain.
-
-## Docs
-
-- [CLAUDE.md](./CLAUDE.md) — instructions to the AI agent driving this
-  repo. Pinned versions, module layout, mise task namespaces, the
-  `.src/` fork workspace.
-- [KUMO.md](./KUMO.md) — cross-project rulebook for using
-  `@cloudflare/kumo` without fighting it. Cascade-layer traps, theme
-  generator gotchas, the `kumo ai` discipline.
-- [SEED.md](./SEED.md) — cross-project rulebook for demo-scenario
-  seeding. One folder per scenario, auto-discovery, the deploy↔seed
-  pairing contract.
+All tasks run through **mise** (`mise tasks`); task scripts are **nushell**.
+Secrets via **fnox** + keychain (per-repo `fnox.toml`).

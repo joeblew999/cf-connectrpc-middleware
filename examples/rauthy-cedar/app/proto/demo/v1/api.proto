@@ -1,0 +1,38 @@
+edition = "2023";
+
+package demo.v1;
+
+// Api is the REAL ConnectRPC service guarded by the shared `oidc → cedar`
+// middleware. Reaching any method means the Rauthy JWT verified (OidcLayer)
+// and Cedar allowed the action; the handler reads the verified `Session` from
+// the request context extensions and echoes it back.
+//
+// Each RPC path maps to a Cedar action via `action_from_path`:
+//   POST /demo.v1.Api/Read   → Action::"demo.v1.Api.Read"
+//   POST /demo.v1.Api/Admin  → Action::"demo.v1.Api.Admin"
+//   POST /demo.v1.Api/Super  → Action::"demo.v1.Api.Super"
+//   POST /demo.v1.Api/GetDoc → Action::"demo.v1.Api.GetDoc"
+// — exactly the actions in app/policies/demo.cedar.
+//
+// `GetDoc` is the BODY-AWARE case: the path-based CedarLayer can only see the
+// route, but the `doc_id` lives in the decoded request body. The
+// `CedarInterceptor` runs after envelope decode, reads `doc_id`, and
+// authorizes against the specific `Doc` — so `GetDoc("public")` is allowed and
+// `GetDoc(anything-else)` is denied, demonstrating authz the Layer can't do.
+service Api {
+  rpc Read(Request) returns (Reply);
+  rpc Admin(Request) returns (Reply);
+  rpc Super(Request) returns (Reply);
+  rpc GetDoc(GetDocRequest) returns (Reply);
+}
+
+message Request {}
+
+message GetDocRequest {
+  string doc_id = 1;
+}
+
+message Reply {
+  string subject = 1;
+  repeated string roles = 2;
+}

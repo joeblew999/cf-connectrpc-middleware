@@ -285,7 +285,7 @@ obvious. Small refactor; large readability win.
 # Suggested order of work
 
 1. Implement the basic `CedarLayer` (no extras — just port the
-   `require_*` helpers). This is step 3 of the master plan in CLAUDE.md.
+   `require_*` helpers).
 2. Apply structural change **A** (delete `authz.rs`) and **E** (split
    SessionContext) — these make item 1 land cleanly.
 3. ROADMAP item **1** (forbid guardrails) — smallest add, biggest

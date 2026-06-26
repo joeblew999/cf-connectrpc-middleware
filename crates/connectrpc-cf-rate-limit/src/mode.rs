@@ -9,7 +9,7 @@
 //!    short-circuit with `ConnectError::resource_exhausted`.
 //!
 //! The pattern parallels [`connectrpc_cedar::Mode`] — same `Rollout`
-//! trait, different enum, different semantics. Per MIDDLEWARES.md §6.3.
+//! trait, different enum, different semantics.
 
 use connectrpc_tower_kit::Rollout;
 

@@ -3,7 +3,6 @@
 // Relations the middleware packs into context.team_relations (from
 // team_coaches + player_teams + subscriptions):
 //   HEAD_COACH, ASSISTANT_COACH, TEAM_MANAGER, TEAM_PLAYER, FOLLOWER_TEAM
-
 @id("team-public-views")
 permit (
   principal,
@@ -18,10 +17,13 @@ permit (
   action == Action::"EDIT_TEAM_PROFILE",
   resource is Team
 )
-when {
+when
+{
   principal.role == "ADMIN" ||
-  (context has team_relations && context.team_relations.contains("HEAD_COACH")) ||
-  (context has team_relations && context.team_relations.contains("TEAM_MANAGER"))
+  (context has team_relations &&
+   context.team_relations.contains("HEAD_COACH")) ||
+  (context has team_relations &&
+   context.team_relations.contains("TEAM_MANAGER"))
 };
 
 // MANAGE_ROSTER: HEAD_COACH + ASSISTANT_COACH + TEAM_MANAGER + PLATFORM_ADMIN.
@@ -31,7 +33,8 @@ permit (
   action == Action::"MANAGE_ROSTER",
   resource is Team
 )
-when {
+when
+{
   principal.role == "ADMIN" ||
   (context has team_relations &&
    (context.team_relations.contains("HEAD_COACH") ||
@@ -47,13 +50,12 @@ permit (
   action == Action::"REGISTER_TEAM_FOR_EVENT",
   resource is Team
 )
-when {
+when
+{
   context has event_type &&
   ["L", "Sh", "T"].contains(context.event_type) &&
-  (
-    principal.role == "ADMIN" ||
-    (context has team_relations &&
-     (context.team_relations.contains("HEAD_COACH") ||
-      context.team_relations.contains("TEAM_MANAGER")))
-  )
+  (principal.role == "ADMIN" ||
+   (context has team_relations &&
+    (context.team_relations.contains("HEAD_COACH") ||
+     context.team_relations.contains("TEAM_MANAGER"))))
 };

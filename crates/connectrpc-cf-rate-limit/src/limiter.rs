@@ -50,3 +50,26 @@ pub trait RateLimiter: Send + Sync + 'static {
     /// to JS).
     async fn check(&self, key: String) -> RateLimitOutcome;
 }
+
+/// Limiter that allows every request — the native/default counterpart to
+/// the CF Rate Limiting binding, mirroring [`NoopSink`] in
+/// `connectrpc-cf-metrics`. Use it on hosts that don't provision a CF
+/// rate-limit binding (the native server, local dev) so the same
+/// `RateLimitLayer` composition runs everywhere with no platform `cfg`.
+///
+/// [`NoopSink`]: https://docs.rs/connectrpc-cf-metrics
+#[derive(Clone, Debug, Default)]
+pub struct AllowAll;
+
+impl AllowAll {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+#[async_trait]
+impl RateLimiter for AllowAll {
+    async fn check(&self, _key: String) -> RateLimitOutcome {
+        RateLimitOutcome::Allowed
+    }
+}

@@ -19,13 +19,11 @@ crate-type = ["cdylib", "rlib"]
 #   - `layer`       — transparent tower::Layer (reads req.uri().path())
 #   - `interceptor` — connectrpc::Interceptor (reads Spec::procedure,
 #                     derives status from the typed Result<_, ConnectError>)
-# The Interceptor trait landed in connectrpc 0.6 (it didn't exist in the
-# 0.4.2 we used to pin — see MIDDLEWARES.md §3), so we now depend on
-# connectrpc for the interceptor module. The Layer needs none of it.
+# The interceptor module depends on connectrpc 0.7's `Interceptor` trait.
+# The Layer needs none of it.
 connectrpc.workspace       = true
 tower.workspace            = true
 http.workspace             = true
-tracing.workspace          = true
 pin-project-lite.workspace = true
 
 # async-trait for the MetricSink consumer trait. AE binding itself is sync,

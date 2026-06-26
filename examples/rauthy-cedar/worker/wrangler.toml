@@ -12,3 +12,31 @@ command = "cargo install -q \"worker-build@^0.8\" && worker-build --release"
 RAUTHY_ISSUER   = "http://localhost:8088/auth/v1/"
 RAUTHY_JWKS_URL = "http://localhost:8088/auth/v1/oidc/certs"
 RAUTHY_AUD      = "worker-client"
+
+# Target Connect service URL for the `/client-demo` route, which exercises the
+# connectrpc-workers CLIENT transport (Worker → Connect service via FetchTransport,
+# proving the OUTBOUND half of "Connect on Workers"). The demo calls demo.v1.Api/Read.
+# Leave it empty to have /client-demo return a 200 explaining how to set it.
+# Point it at the native server (`http://localhost:8090`) or the Worker's own
+# public origin (a self-call round trip).
+CLIENT_DEMO_TARGET = ""
+
+# The metrics SINK the Worker injects into make(): a Workers Analytics Engine
+# dataset. The MetricsInterceptor writes one data point per RPC
+# (blobs = [metric_name, procedure, status_class], doubles = [value]).
+# `env.analytics_engine("AE")` reads this binding.
+[[analytics_engine_datasets]]
+binding = "AE"
+dataset = "rauthy_cedar_rpc"
+
+# The rate LIMITER the Worker injects into make(): the GA Workers Rate Limiting
+# binding (works in `wrangler dev`). The RateLimitLayer keys on cf-connecting-ip
+# and rejects with Connect `resource_exhausted` (HTTP 429) past the limit.
+# `env.rate_limiter("RL")` reads this binding. `period` must be 10 or 60.
+[[ratelimits]]
+name = "RL"
+namespace_id = "1001"
+
+  [ratelimits.simple]
+  limit = 100
+  period = 60

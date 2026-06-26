@@ -186,12 +186,7 @@ where
                         let msg = format!("rate limit exceeded for key {key}");
                         Ok(deny_response(ConnectError::resource_exhausted(msg)))
                     } else {
-                        log_shadow(
-                            "rate-limit",
-                            mode.name(),
-                            "throttle",
-                            &format!("key={key}"),
-                        );
+                        log_shadow("rate-limit", mode.name(), "throttle", &format!("key={key}"));
                         inner.call(req).await
                     }
                 }

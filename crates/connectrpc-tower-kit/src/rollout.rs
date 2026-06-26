@@ -65,7 +65,12 @@ pub trait Rollout: std::fmt::Debug + Send + Sync + 'static {
 /// `"throttle"`, `"invalid"`). `details` is a free-form string the
 /// middleware can use for whatever context matters (Cedar reasons,
 /// rate-limit bucket, validation violations).
-pub fn log_shadow(middleware: &'static str, mode: &'static str, decision: &'static str, details: &str) {
+pub fn log_shadow(
+    middleware: &'static str,
+    mode: &'static str,
+    decision: &'static str,
+    details: &str,
+) {
     // `target = "connectrpc_middleware"` so `RUST_LOG=connectrpc_middleware=info`
     // catches every shadow-mode middleware in the family with one filter.
     tracing::warn!(

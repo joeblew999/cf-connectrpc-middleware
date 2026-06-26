@@ -1,34 +1,6 @@
 [
-  {
-    "uid": { "type": "User", "id": "alice" },
-    "attrs": {
-      "email": "alice@example.com",
-      "roles": ["admin"],
-      "groups": ["eng"]
-    },
-    "parents": []
-  },
-  {
-    "uid": { "type": "User", "id": "bob" },
-    "attrs": {
-      "email": "bob@example.com",
-      "roles": ["editor"],
-      "groups": ["eng"]
-    },
-    "parents": []
-  },
-  {
-    "uid": { "type": "User", "id": "carol" },
-    "attrs": {
-      "email": "carol@example.com",
-      "roles": ["viewer"],
-      "groups": ["design"]
-    },
-    "parents": []
-  },
-  {
-    "uid": { "type": "Doc", "id": "spec" },
-    "attrs": { "group": "eng" },
-    "parents": []
-  }
+  { "uid": { "type": "User", "id": "alice" }, "attrs": {}, "parents": [] },
+  { "uid": { "type": "Api", "id": "main" }, "attrs": {}, "parents": [] },
+  { "uid": { "type": "Doc", "id": "public" }, "attrs": {}, "parents": [] },
+  { "uid": { "type": "Doc", "id": "secret" }, "attrs": {}, "parents": [] }
 ]

@@ -16,18 +16,14 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 # Shared primitives — Rollout trait, denial-response builder, the Future
-# enum helper, canonical extension-type docs. See MIDDLEWARES.md §6.
+# enum helper, canonical extension-type docs.
 connectrpc-tower-kit = { path = "../connectrpc-tower-kit", version = "0.1.0" }
 
 connectrpc.workspace       = true
 cedar-policy.workspace     = true
 tower.workspace            = true
 http.workspace             = true
-http-body.workspace        = true
-http-body-util.workspace   = true
-bytes.workspace            = true
 tracing.workspace          = true
-pin-project-lite.workspace = true
 
 [dev-dependencies]
 # In tests we want a runtime to drive futures + assertion helpers. Workers
@@ -37,8 +33,7 @@ tokio = { version = "1", features = ["macros", "rt"] }
 
 [features]
 default = []
-# Opt-in helper that knows how to extract from the connectrpc-workers
-# example-multitenant-worker's SessionContext shape. Downstream consumers
-# with their own session structs build their own extractor; this feature
-# saves the boilerplate for projects that share the example's shape.
+# Opt-in, off by default. Downstream consumers build their own extractor
+# over their own session struct; the extractor is generic over the
+# consumer's session type, so this feature is never required.
 multitenant-extractor = []

@@ -207,6 +207,13 @@ mod tests {
     use std::convert::Infallible;
     use tower::service_fn;
 
+    /// Both tests touch `tracing`'s process-global callsite-interest cache, so
+    /// running them concurrently can let the no-subscriber test filter out the
+    /// capture test's event. Serialize them — `cargo test` runs the module's
+    /// tests on parallel threads otherwise. (Recover from a poisoned lock so a
+    /// panic in one test doesn't cascade into a misleading failure in the other.)
+    static SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     /// `tracing_subscriber::fmt::MakeWriter` sink that captures every byte
     /// the fmt layer writes — span open lines, field key/value pairs,
     /// the close marker. Test asserts against the captured buffer.
@@ -234,6 +241,7 @@ mod tests {
     /// `#[tokio::test]` already owns the current thread.
     #[test]
     fn span_records_all_provided_fields() {
+        let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
         let buf = CaptureWriter::default();
         // Don't use FmtSpan::NEW — at span-open the recorded fields
         // aren't included in the formatter's output. Instead emit a
@@ -245,45 +253,46 @@ mod tests {
             .with_writer(buf.clone())
             .with_ansi(false)
             .finish();
-        // `set_default` installs the subscriber on the current thread for
-        // the lifetime of the returned guard. The runtime built below
-        // inherits this thread's subscriber for its tasks.
-        let _guard = tracing::subscriber::set_default(subscriber);
 
-        let rt = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .unwrap();
-        rt.block_on(async {
-            let layer = TracingLayer::new(|req: &Request<()>| CfFields {
-                procedure: Some(req.uri().path().to_string()),
-                colo: Some("SIN".into()),
-                country: Some("SG".into()),
-                asn: Some(13335),
-                tls_cipher: Some("AEAD-AES128-GCM-SHA256".into()),
-                http_protocol: Some("HTTP/2".into()),
-                ray: Some("8c0123456789abcd-SIN".into()),
-            });
-
-            let inner = service_fn(|_req: Request<()>| async {
-                // Event inside the span — fmt renders the active span's
-                // fields alongside this event line, which is what the
-                // assertions below grep for.
-                tracing::info!("handled");
-                Ok::<_, Infallible>(http::Response::new(()))
-            });
-
-            let mut svc = layer.layer(inner);
-            let req = Request::builder()
-                .uri("/pkg.v1.Service/Method")
-                .body(())
+        // `with_default` scopes the subscriber to the current thread for the
+        // duration of the closure ONLY — it never touches the process-global
+        // default. The runtime is built AND driven inside the closure, so the
+        // current-thread runtime (which runs its tasks on this same thread)
+        // sees the scoped subscriber, and nothing leaks to the global default
+        // or to the sibling `#[tokio::test]` in this module. This keeps the
+        // test deterministic under default-parallelism `cargo test`.
+        tracing::subscriber::with_default(subscriber, || {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
                 .unwrap();
-            let _resp = <_ as Service<Request<()>>>::call(&mut svc, req).await;
-        });
+            rt.block_on(async {
+                let layer = TracingLayer::new(|req: &Request<()>| CfFields {
+                    procedure: Some(req.uri().path().to_string()),
+                    colo: Some("SIN".into()),
+                    country: Some("SG".into()),
+                    asn: Some(13335),
+                    tls_cipher: Some("AEAD-AES128-GCM-SHA256".into()),
+                    http_protocol: Some("HTTP/2".into()),
+                    ray: Some("8c0123456789abcd-SIN".into()),
+                });
 
-        // Drop guard so the subscriber unhooks before assertions read
-        // the buffer (cheap insurance against deadlock).
-        drop(_guard);
+                let inner = service_fn(|_req: Request<()>| async {
+                    // Event inside the span — fmt renders the active span's
+                    // fields alongside this event line, which is what the
+                    // assertions below grep for.
+                    tracing::info!("handled");
+                    Ok::<_, Infallible>(http::Response::new(()))
+                });
+
+                let mut svc = layer.layer(inner);
+                let req = Request::builder()
+                    .uri("/pkg.v1.Service/Method")
+                    .body(())
+                    .unwrap();
+                let _resp = <_ as Service<Request<()>>>::call(&mut svc, req).await;
+            });
+        });
 
         let captured = String::from_utf8(buf.0.lock().unwrap().clone()).unwrap();
         // The fmt layer renders the active span's fields inside `{…}`
@@ -294,7 +303,10 @@ mod tests {
             "missing procedure: {captured}"
         );
         assert!(captured.contains("cf.colo=SIN"), "missing colo: {captured}");
-        assert!(captured.contains("cf.country=SG"), "missing country: {captured}");
+        assert!(
+            captured.contains("cf.country=SG"),
+            "missing country: {captured}"
+        );
         assert!(captured.contains("cf.asn=13335"), "missing asn: {captured}");
         assert!(
             captured.contains("cf.ray=8c0123456789abcd-SIN"),
@@ -304,15 +316,17 @@ mod tests {
 
     #[tokio::test]
     async fn missing_fields_dont_panic() {
+        let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
         // Extractor returns CfFields::empty() — verify the layer still
         // wires through and the inner service sees the request.
         let layer = TracingLayer::new(|_: &Request<()>| CfFields::empty());
-        let inner = service_fn(|_req: Request<()>| async {
-            Ok::<_, Infallible>(http::Response::new(()))
-        });
+        let inner =
+            service_fn(|_req: Request<()>| async { Ok::<_, Infallible>(http::Response::new(())) });
         let mut svc = layer.layer(inner);
         let req = Request::builder().uri("/x.Svc/M").body(()).unwrap();
-        let resp = <_ as Service<Request<()>>>::call(&mut svc, req).await.unwrap();
+        let resp = <_ as Service<Request<()>>>::call(&mut svc, req)
+            .await
+            .unwrap();
         assert_eq!(resp.status(), 200);
     }
 }

@@ -6,7 +6,6 @@
 //
 // Event subtype passes through as context.event_type ("T" | "L" | "K" | "Sh")
 // — required for scoring actions which only apply to L/Sh/T per matrix.md.
-
 // VIEW_EVENT and all the view-actions are PUBLIC per the matrix.
 // Cedar receives the request only if a principal exists, but we permit
 // any principal as long as the action is in the view group.
@@ -28,12 +27,15 @@ permit (
   action in Action::"EventOwnerActions",
   resource is Event
 )
-when {
+when
+{
   principal.role == "ADMIN" ||
   (context has event_relations && context.event_relations.contains("OWNER")) ||
-  (context has event_relations && context.event_relations.contains("CO_ORGANIZER"))
+  (context has event_relations &&
+   context.event_relations.contains("CO_ORGANIZER"))
 }
-unless {
+unless
+{
   // DELETE_EVENT is owner+admin only, not co-organizer.
   action == Action::"DELETE_EVENT" &&
   principal.role != "ADMIN" &&
@@ -49,13 +51,13 @@ permit (
   action in Action::"EventScoringActions",
   resource is Event
 )
-when {
+when
+{
   context has event_type &&
   ["L", "Sh", "T"].contains(context.event_type) &&
-  (
-    principal.role == "ADMIN" ||
-    principal.role == "REFEREE" ||
-    (context has event_relations && context.event_relations.contains("OWNER")) ||
-    (context has event_relations && context.event_relations.contains("CO_ORGANIZER"))
-  )
+  (principal.role == "ADMIN" ||
+   principal.role == "REFEREE" ||
+   (context has event_relations && context.event_relations.contains("OWNER")) ||
+   (context has event_relations &&
+    context.event_relations.contains("CO_ORGANIZER")))
 };

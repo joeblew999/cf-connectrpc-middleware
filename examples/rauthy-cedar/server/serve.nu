@@ -1,15 +1,19 @@
 #!/usr/bin/env nu
-# Reproducible native oidc→cedar server demo: boot Rauthy, mint a real user
-# token, run the server, assert the four middleware cases, tear down.
+# Reproducible native full-stack server demo: boot Rauthy, mint a real user
+# token, run the server, assert the middleware cases, tear down. Exercises the
+# whole shared stack (tracing → rate-limit → oidc → cedar → service with the
+# metrics + body-aware-cedar interceptors) — same make() the Worker uses.
 #
 #   nu examples/rauthy-cedar/server/serve.nu        # needs a local Docker daemon
 #
 # Cases asserted:
-#   /healthz            (no token)             → 200   (skip path)
-#   /demo.v1.Api/Read   (no token)             → 401   (OidcLayer: AuthN)
-#   /demo.v1.Api/Read   (admin token)          → 200   (CedarLayer: allow)
-#   /demo.v1.Api/Admin  (admin token)          → 200   (allow — has admin role)
-#   /demo.v1.Api/Super  (admin token)          → 403   (deny — lacks superuser)
+#   /healthz                      (no token)     → 200   (skip path)
+#   /demo.v1.Api/Read             (no token)     → 401   (OidcLayer: AuthN)
+#   /demo.v1.Api/Read             (admin token)  → 200   (CedarLayer: path allow)
+#   /demo.v1.Api/Admin            (admin token)  → 200   (allow — has admin role)
+#   /demo.v1.Api/Super            (admin token)  → 403   (deny — lacks superuser)
+#   /demo.v1.Api/GetDoc {public}  (admin token)  → 200   (CedarInterceptor: body allow)
+#   /demo.v1.Api/GetDoc {secret}  (admin token)  → 403   (CedarInterceptor: body deny)
 
 const RP = 8088   # rauthy port
 const SP = 8090   # server port
@@ -74,6 +78,10 @@ def main [] {
     [(code [-H $"Authorization: Bearer ($token)" -X POST $"http://localhost:($SP)/demo.v1.Api/Read"])        "200" "Read token → allow"]
     [(code [-H $"Authorization: Bearer ($token)" -X POST $"http://localhost:($SP)/demo.v1.Api/Admin"])       "200" "Admin admin-role → allow"]
     [(code [-H $"Authorization: Bearer ($token)" -X POST $"http://localhost:($SP)/demo.v1.Api/Super"])       "403" "Super no-superuser → deny"]
+    # Body-aware: the CedarInterceptor reads doc_id from the JSON body. Connect
+    # unary takes the request message as the JSON body (application/json).
+    [(code [-H $"Authorization: Bearer ($token)" -H "Content-Type: application/json" -d "{\"docId\":\"public\"}" $"http://localhost:($SP)/demo.v1.Api/GetDoc"])  "200" "GetDoc(public) → body allow"]
+    [(code [-H $"Authorization: Bearer ($token)" -H "Content-Type: application/json" -d "{\"docId\":\"secret\"}" $"http://localhost:($SP)/demo.v1.Api/GetDoc"])  "403" "GetDoc(secret) → body deny"]
   ]
   mut fail = 0
   for c in $cases {
@@ -84,5 +92,5 @@ def main [] {
   do { ^docker rm -f rauthy-srv } | complete | ignore
   rm -rf $dir
   if $fail > 0 { print -e "SERVER E2E FAILED"; exit 1 }
-  print "==> SERVER E2E OK — oidc→cedar middleware enforced over HTTP on real Rauthy tokens."
+  print "==> SERVER E2E OK — full middleware stack enforced over HTTP on real Rauthy tokens."
 }

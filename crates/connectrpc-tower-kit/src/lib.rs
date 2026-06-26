@@ -20,13 +20,12 @@
 //!
 //! ## Why a kit and not just helpers in `connectrpc-cedar`
 //!
-//! Read [`../../../MIDDLEWARES.md`](../../../MIDDLEWARES.md) §6 — the
-//! catalog identified six recurring patterns in middlewares that age
-//! well. Three of them (generic over `B`, soft middleware + handler
-//! backstop, canonical extensions) are conventions, not code; the kit
-//! documents them. The other three (`Mode` toggles, short-circuit
-//! Future, denial-response builder) are code that every middleware
-//! re-implements unless extracted. We're extracting.
+//! Three recurring middleware patterns (generic over `B`, soft
+//! middleware + handler backstop, canonical extensions) are
+//! conventions, not code; the kit documents them. The other three
+//! (`Mode` toggles, short-circuit Future, denial-response builder) are
+//! code that every middleware re-implements unless extracted. We're
+//! extracting.
 //!
 //! When the family grows past Cedar — `connectrpc-cf-tracing`,
 //! `connectrpc-cf-rate-limit`, `connectrpc-validation`, … — those
@@ -34,9 +33,8 @@
 //!
 //! ## CF Workers compatibility
 //!
-//! Every dep here is on the verified wasm32 list (see
-//! [`../../../MIDDLEWARES.md`](../../../MIDDLEWARES.md) §2). The kit
-//! compiles to `wasm32-unknown-unknown` with no platform feature flag.
+//! Every dep here is wasm32-clean. The kit compiles to
+//! `wasm32-unknown-unknown` with no platform feature flag.
 
 #![forbid(unsafe_code)]
 // Note on `missing_docs`: not enabled because `pin_project!` generates
@@ -44,13 +42,13 @@
 // variants are documented via the `pin_project!` block comment in
 // `future.rs`. Re-enable once pin-project-lite supports field docs.
 
-pub mod rollout;
-pub mod response;
-pub mod future;
 pub mod ext;
+pub mod future;
+pub mod response;
+pub mod rollout;
 pub mod session;
 
-pub use rollout::{Rollout, log_shadow};
-pub use response::deny_response;
 pub use future::ShortCircuitFuture;
+pub use response::deny_response;
+pub use rollout::{Rollout, log_shadow};
 pub use session::Session;

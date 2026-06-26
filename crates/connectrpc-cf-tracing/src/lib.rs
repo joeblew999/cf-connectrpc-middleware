@@ -30,14 +30,11 @@
 //! Tracing never rejects requests. It only observes. So this layer is
 //! generic over `S` with `type Response = S::Response` (no `ConnectRpcBody`
 //! pinning, no `Error = Infallible` requirement). That's the same
-//! shape as `RequestIdLayer` / `AuthLayer` in the connyay reference
-//! workers — see [MIDDLEWARES.md §1 surface #1][surfaces].
+//! shape as a transparent `RequestIdLayer` / `AuthLayer`.
 //!
 //! The kit's `Rollout` trait is **not** used here because tracing has
 //! no "off" mode worth toggling. If a future variant wants sampling,
 //! it adopts `Rollout` with a `Sample`/`All` enum.
-//!
-//! [surfaces]: https://github.com/joeblew999/cf-connectrpc-middleware/blob/main/MIDDLEWARES.md
 
 pub mod extract;
 pub mod layer;

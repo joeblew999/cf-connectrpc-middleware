@@ -11,11 +11,14 @@ name = "rauthy-cedar-server"
 path = "src/main.rs"
 
 [dependencies]
-# All the app logic (middleware + policies + extractor) is shared here.
+# All the app logic (full middleware stack + policies + extractors) is shared.
 rauthy-cedar-app = { path = "../app" }
 connectrpc-oidc  = { path = "../../../crates/connectrpc-oidc" }
+# The native host injects these two platform-specific deps into make():
+# NoopSink (no Analytics Engine off-edge) + AllowAll (no CF Rate Limiting binding).
+connectrpc-cf-metrics    = { path = "../../../crates/connectrpc-cf-metrics" }
+connectrpc-cf-rate-limit = { path = "../../../crates/connectrpc-cf-rate-limit" }
 
-http  = { workspace = true }
 tower = { workspace = true, features = ["util"] }
 
 # Native host bits only.

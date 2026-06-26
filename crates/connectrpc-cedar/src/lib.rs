@@ -38,8 +38,10 @@
 //! )?);
 //!
 //! // 2. Define how to map your session into a Cedar request.
+//! //    `Session` here is whatever type your AuthN layer inserts —
+//! //    `connectrpc_tower_kit::Session` for the common case, or your own.
 //! let extractor = |req: &http::Request<_>| -> Option<CedarRequest> {
-//!     let session = req.extensions().get::<SessionContext>()?;
+//!     let session = req.extensions().get::<Session>()?;
 //!     // Build CedarRequest::{principal, action, resource, context}
 //!     // from `session` + the URL path.
 //!     ...

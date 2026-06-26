@@ -60,8 +60,8 @@ impl CedarAuthorizer {
     /// store — relations come through the per-request Cedar context.
     /// For setups that pre-load entities, use [`Self::with_entities`].
     pub fn from_str(schema: &str, policies: &str) -> Result<Self, CedarAuthorizerError> {
-        let (schema, _warnings) =
-            Schema::from_cedarschema_str(schema).map_err(|e| CedarAuthorizerError::Schema(e.to_string()))?;
+        let (schema, _warnings) = Schema::from_cedarschema_str(schema)
+            .map_err(|e| CedarAuthorizerError::Schema(e.to_string()))?;
         let policies = policies
             .parse::<PolicySet>()
             .map_err(|e| CedarAuthorizerError::Policies(e.to_string()))?;
@@ -139,10 +139,10 @@ impl CedarAuthorizer {
                 return (Decision::Deny, vec![format!("schema-error: {e}")]);
             }
         };
-        let response = self
-            .inner
-            .authorizer
-            .is_authorized(&req, &self.inner.policies, &self.inner.entities);
+        let response =
+            self.inner
+                .authorizer
+                .is_authorized(&req, &self.inner.policies, &self.inner.entities);
         let reasons = response
             .diagnostics()
             .reason()
@@ -151,4 +151,3 @@ impl CedarAuthorizer {
         (response.decision(), reasons)
     }
 }
-

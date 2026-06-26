@@ -20,15 +20,12 @@ crate-type = ["rlib"]
 # default-features = false keeps the wasm32 build path clean — no server/TLS.
 connectrpc.workspace = true
 
-# Standard tower traits. default-features = false because we just want the
-# Layer + Service traits, no executor / utility helpers (downstream crates
-# add `tower = { features = ["util"] }` if they need ServiceExt).
-tower.workspace = true
-
 # http types — Request, Response, HeaderName. Shared with every Connect-RPC
-# middleware via tower::Service<http::Request<B>>.
+# middleware via tower::Service<http::Request<B>>. (We don't depend on `tower`
+# itself here: the kit only provides primitives — the denial-response builder,
+# the ShortCircuitFuture enum, the Rollout trait — and never names a
+# `tower::Layer`/`tower::Service` bound. Downstream crates depend on `tower`.)
 http.workspace          = true
-http-body.workspace     = true
 http-body-util.workspace = true
 bytes.workspace         = true
 

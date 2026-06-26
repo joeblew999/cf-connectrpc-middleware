@@ -93,10 +93,10 @@ impl<E: CedarUnaryExtractor> Interceptor for CedarInterceptor<E> {
     ) -> Result<UnaryResponse, ConnectError> {
         // Skip-list check. `path()` borrows `req`; scope it so the borrow
         // ends before we move `req` into `next.run`.
-        if let Some(path) = req.ctx.path() {
-            if self.skip_paths.iter().any(|p| p == path) {
-                return next.run(req).await;
-            }
+        if let Some(path) = req.ctx.path()
+            && self.skip_paths.iter().any(|p| p == path)
+        {
+            return next.run(req).await;
         }
 
         // Build the Cedar tuple from the decoded request. `None` => no

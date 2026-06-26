@@ -5,9 +5,9 @@
 //! implement [`CedarRequestExtractor`] (or pass a closure that satisfies
 //! the trait's blanket impl) and `CedarLayer` calls it per-request.
 //!
-//! This keeps the crate framework-agnostic: it doesn't depend on the
-//! example-multitenant-worker's `SessionContext` type. Each project
-//! defines its own session shape and adapter.
+//! This keeps the crate framework-agnostic: it doesn't depend on any
+//! particular session type. Each project defines its own session shape
+//! and adapter (e.g. `connectrpc_tower_kit::Session`, or its own struct).
 
 use cedar_policy::{Context, EntityUid};
 

@@ -1,10 +1,13 @@
 //! NATIVE host for the shared `rauthy-cedar-app`.
 //!
-//! All the interesting code — the `oidc → cedar` stack, the policies, the
-//! extractor — lives in `rauthy-cedar-app` and is shared verbatim with the CF
-//! Worker (`../worker`). This file does only the two platform-specific things:
+//! All the interesting code — the full `tracing → rate-limit → oidc → cedar →
+//! service(+metrics+body-cedar)` stack, the policies, the extractors — lives in
+//! `rauthy-cedar-app::make` and is shared verbatim with the CF Worker
+//! (`../worker`). This file does only the platform-specific things:
 //!   1. fetch JWKS with `ureq` (the Worker uses `worker::Fetch`)
 //!   2. serve with `hyper`   (the Worker uses `worker::event(fetch)`)
+//!   3. inject the native metrics sink (`NoopSink`) + rate limiter (`AllowAll`)
+//!      — the CF Analytics-Engine / Rate-Limiting bindings only exist on the edge.
 //!
 //! Env: RAUTHY_ISSUER  RAUTHY_JWKS_URL  [RAUTHY_AUD=worker-client]  [PORT=8090]
 //!
@@ -37,14 +40,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let jwks = ureq::get(&jwks_url).call()?.into_string()?;
     let verifier = Arc::new(JwksVerifier::from_jwks_json(&issuer, Some(aud), &jwks)?);
 
-    // The shared app builds the entire oidc→cedar stack.
-    let svc = rauthy_cedar_app::make::<hyper::body::Incoming>(verifier);
+    // The shared app builds the ENTIRE crates/* middleware stack. The native
+    // host injects the two platform-specific deps: a no-op metrics sink and an
+    // always-allow rate limiter (the CF bindings only exist on the Worker).
+    let svc = rauthy_cedar_app::make::<hyper::body::Incoming, _, _>(
+        verifier,
+        connectrpc_cf_metrics::NoopSink::new(),
+        connectrpc_cf_rate_limit::AllowAll::new(),
+    );
 
     // (2) platform-specific: hyper serve loop. The shared service's future is
     // !Send (same as on the Worker), so drive it on a current-thread LocalSet
     // with spawn_local rather than the Send-requiring tokio::task::spawn.
     let listener = TcpListener::bind(("127.0.0.1", port)).await?;
-    println!("oidc→cedar server on http://127.0.0.1:{port}  (issuer {issuer})");
+    println!("full-stack server on http://127.0.0.1:{port}  (issuer {issuer})");
     let local = tokio::task::LocalSet::new();
     local
         .run_until(async move {

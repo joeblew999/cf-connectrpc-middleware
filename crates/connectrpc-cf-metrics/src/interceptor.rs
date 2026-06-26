@@ -1,7 +1,7 @@
 //! `connectrpc::Interceptor` that times each unary RPC and emits to a
 //! [`MetricSink`] — the Interceptor-surface sibling of [`MetricsLayer`].
 //!
-//! Why this exists alongside the Layer (MIDDLEWARES.md §3 flagged it):
+//! Why this exists alongside the Layer:
 //!
 //! - **Better `procedure` label.** An interceptor runs after the Connect
 //!   envelope is decoded, so it reads the static `Spec::procedure`

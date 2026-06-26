@@ -19,11 +19,7 @@ connectrpc-tower-kit = { path = "../connectrpc-tower-kit", version = "0.1.0" }
 connectrpc.workspace       = true
 tower.workspace            = true
 http.workspace             = true
-http-body.workspace        = true
-http-body-util.workspace   = true
-bytes.workspace            = true
 tracing.workspace          = true
-pin-project-lite.workspace = true
 
 # JWT verification — PURE-RUST (RustCrypto) so it builds for BOTH native and
 # wasm32-unknown-unknown (the Worker target). jsonwebtoken was rejected: it's

@@ -8,10 +8,9 @@
 //! can read BOTH:
 //!
 //! - `req.ctx` — the [`RequestContext`](connectrpc::RequestContext):
-//!   `path()`, `headers()`, and `extensions()` (e.g. the `SessionContext`
-//!   an upstream `AuthLayer` inserted — the dispatcher copies
-//!   `http::Request::extensions` → `Context::extensions` automatically,
-//!   per MIDDLEWARES.md §6 pattern 2); and
+//!   `path()`, `headers()`, and `extensions()` (e.g. the `Session`
+//!   an upstream AuthN layer inserted — the dispatcher copies
+//!   `http::Request::extensions` → `Context::extensions` automatically); and
 //! - `req.payload` — the decoded request message, via
 //!   `req.payload.message::<YourProtoMsg>()`, for body-aware decisions
 //!   (e.g. authorize against the `org_id` carried in the request body).
@@ -30,7 +29,7 @@ use connectrpc_cedar::CedarRequest;
 ///
 /// ```ignore
 /// let extractor = |req: &connectrpc::UnaryRequest| -> Option<CedarRequest> {
-///     let session = req.ctx.extensions().get::<SessionContext>()?;
+///     let session = req.ctx.extensions().get::<Session>()?;
 ///     let path = req.ctx.path()?;
 ///     // body-aware: read a field off the decoded message
 ///     // let msg = req.payload.message::<CreateOrgRequest>().ok()?;

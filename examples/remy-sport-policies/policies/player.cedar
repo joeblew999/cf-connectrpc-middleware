@@ -9,7 +9,6 @@
 // through too (context.team_relations on a Player request describes
 // the requester's relation to the player's team, not directly to the
 // player). Slightly indirect; documented here.
-
 @id("player-public-views")
 permit (
   principal,
@@ -25,7 +24,8 @@ permit (
   action == Action::"EDIT_PLAYER_PROFILE",
   resource is Player
 )
-when {
+when
+{
   principal.role == "ADMIN" ||
   (context has player_relations &&
    (context.player_relations.contains("SELF") ||
@@ -43,13 +43,12 @@ permit (
   action == Action::"REGISTER_PLAYER_FOR_EVENT",
   resource is Player
 )
-when {
+when
+{
   context has event_type &&
   ["K", "Sh"].contains(context.event_type) &&
-  (
-    principal.role == "ADMIN" ||
-    (context has player_relations &&
-     (context.player_relations.contains("SELF") ||
-      context.player_relations.contains("GUARDIAN")))
-  )
+  (principal.role == "ADMIN" ||
+   (context has player_relations &&
+    (context.player_relations.contains("SELF") ||
+     context.player_relations.contains("GUARDIAN"))))
 };

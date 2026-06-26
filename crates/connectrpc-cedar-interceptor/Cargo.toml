@@ -2,7 +2,7 @@
 name        = "connectrpc-cedar-interceptor"
 # [generic] = no CF binding required; builds anywhere connectrpc does.
 # The Interceptor-surface sibling of connectrpc-cedar (tower::Layer).
-description = "[generic] Body-aware Cedar authorization on the connectrpc::Interceptor surface. Runs after envelope decode, so the extractor can read the decoded request message — the body-aware authz MIDDLEWARES.md §3 listed as missing."
+description = "[generic] Body-aware Cedar authorization on the connectrpc::Interceptor surface. Runs after envelope decode, so the extractor can read the decoded request message."
 version.workspace      = true
 edition.workspace      = true
 rust-version.workspace = true

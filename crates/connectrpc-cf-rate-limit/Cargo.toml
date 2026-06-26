@@ -22,11 +22,9 @@ connectrpc-tower-kit = { path = "../connectrpc-tower-kit", version = "0.1.0" }
 connectrpc.workspace       = true
 tower.workspace            = true
 http.workspace             = true
-http-body.workspace        = true
 http-body-util.workspace   = true
 bytes.workspace            = true
 tracing.workspace          = true
-pin-project-lite.workspace = true
 
 # async-trait for the RateLimiter trait. Matches what `connectrpc::Interceptor`
 # uses, so consumers writing both don't pull in two async-trait variants.

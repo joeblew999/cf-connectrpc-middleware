@@ -205,11 +205,7 @@ where
             // without coupling to either tokio or worker. If you have
             // a slow async sink, wrap it in your own buffer that the
             // sink writes to without awaiting.
-            let _ = futures_poll_once(this.sink.counter(
-                this.counter_name,
-                1,
-                &labels,
-            ));
+            let _ = futures_poll_once(this.sink.counter(this.counter_name, 1, &labels));
             let _ = futures_poll_once(this.sink.histogram(
                 this.histogram_name,
                 elapsed_ms,
@@ -306,9 +302,8 @@ mod tests {
     async fn emits_counter_and_histogram_on_2xx() {
         let sink = CaptureSink::new();
         let layer = MetricsLayer::new(sink.clone());
-        let inner = service_fn(|_req: Request<()>| async {
-            Ok::<_, Infallible>(Response::new(()))
-        });
+        let inner =
+            service_fn(|_req: Request<()>| async { Ok::<_, Infallible>(Response::new(())) });
         let mut svc = layer.layer(inner);
 
         let req = Request::builder().uri("/pkg.v1.Svc/M").body(()).unwrap();
@@ -318,14 +313,18 @@ mod tests {
         assert_eq!(counters.len(), 1);
         assert_eq!(counters[0].0, "rpc_requests_total");
         assert_eq!(counters[0].1, 1);
-        assert!(counters[0]
-            .2
-            .iter()
-            .any(|(k, v)| k == "procedure" && v == "/pkg.v1.Svc/M"));
-        assert!(counters[0]
-            .2
-            .iter()
-            .any(|(k, v)| k == "status_class" && v == "2xx"));
+        assert!(
+            counters[0]
+                .2
+                .iter()
+                .any(|(k, v)| k == "procedure" && v == "/pkg.v1.Svc/M")
+        );
+        assert!(
+            counters[0]
+                .2
+                .iter()
+                .any(|(k, v)| k == "status_class" && v == "2xx")
+        );
 
         let histos = sink.histogram_calls.lock().unwrap();
         assert_eq!(histos.len(), 1);
@@ -340,12 +339,7 @@ mod tests {
 
         // 429 path
         let inner = service_fn(|_req: Request<()>| async {
-            Ok::<_, Infallible>(
-                http::Response::builder()
-                    .status(429)
-                    .body(())
-                    .unwrap(),
-            )
+            Ok::<_, Infallible>(http::Response::builder().status(429).body(()).unwrap())
         });
         let mut svc = layer.clone().layer(inner);
         let req = Request::builder().uri("/x").body(()).unwrap();
@@ -353,12 +347,7 @@ mod tests {
 
         // 503 path
         let inner = service_fn(|_req: Request<()>| async {
-            Ok::<_, Infallible>(
-                http::Response::builder()
-                    .status(503)
-                    .body(())
-                    .unwrap(),
-            )
+            Ok::<_, Infallible>(http::Response::builder().status(503).body(()).unwrap())
         });
         let mut svc = layer.clone().layer(inner);
         let req = Request::builder().uri("/x").body(()).unwrap();
@@ -378,9 +367,8 @@ mod tests {
     #[tokio::test]
     async fn noop_sink_compiles_and_runs() {
         let layer = MetricsLayer::new(NoopSink);
-        let inner = service_fn(|_req: Request<()>| async {
-            Ok::<_, Infallible>(Response::new(()))
-        });
+        let inner =
+            service_fn(|_req: Request<()>| async { Ok::<_, Infallible>(Response::new(())) });
         let mut svc = layer.layer(inner);
         let req = Request::builder().uri("/x").body(()).unwrap();
         let resp = svc.call(req).await.unwrap();

@@ -11,8 +11,8 @@
 //! Adopts the kit's [`Rollout`](connectrpc_tower_kit::Rollout) trait
 //! via [`Mode::Observe`] (call the binding, log the decision, never
 //! block — for shadow rollout to verify key derivation) and
-//! [`Mode::Enforce`] (block on exceeded). See MIDDLEWARES.md §6
-//! pattern 3 for the safe-rollout pattern.
+//! [`Mode::Enforce`] (block on exceeded) — the family's safe-rollout
+//! pattern.
 //!
 //! ## CF Workers compatibility
 //!
@@ -32,7 +32,7 @@
 //!
 //! ## Why short-circuit
 //!
-//! Rate limiting rejects requests — surface #2 in MIDDLEWARES.md §1.
+//! Rate limiting rejects requests, so it short-circuits.
 //! The Layer pins `S::Response = Response<ConnectRpcBody>` and
 //! `S::Error = Infallible` so the denial response can be constructed
 //! without invoking `S`. Same shape as `connectrpc-cedar`'s Enforce
@@ -45,5 +45,5 @@ pub mod mode;
 
 pub use key::{IpKeyExtractor, RateLimitKeyExtractor};
 pub use layer::{RateLimitLayer, RateLimitService};
-pub use limiter::{RateLimitOutcome, RateLimiter};
+pub use limiter::{AllowAll, RateLimitOutcome, RateLimiter};
 pub use mode::Mode;

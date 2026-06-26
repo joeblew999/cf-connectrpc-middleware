@@ -8,7 +8,7 @@
 //! - [`MetricsLayer`] — transparent `tower::Layer`. Reads `procedure`
 //!   from `req.uri().path()`; status from the HTTP response status. Use
 //!   in a plain `tower` stack, or before envelope decode.
-//! - [`MetricsInterceptor`] — `connectrpc::Interceptor` (since 0.6). Reads
+//! - [`MetricsInterceptor`] — `connectrpc::Interceptor` (connectrpc 0.7). Reads
 //!   `procedure` from `Spec::procedure` and status from the typed
 //!   `Result<_, ConnectError>`. Preferred for connectrpc services — see
 //!   the `interceptor` module docs for why it's strictly better there.
@@ -39,15 +39,12 @@
 //!
 //! ## Layer and Interceptor
 //!
-//! The `connectrpc::Interceptor` trait is the natural fit for per-RPC
-//! metrics (sees `Spec::procedure`, derives status from the typed
-//! result). It didn't exist in the `connectrpc 0.4.2` this crate was
-//! first written against (only on `main` — see MIDDLEWARES.md §3), so the
-//! crate shipped on the stable `tower::Layer` surface. **As of connectrpc
-//! 0.6 the Interceptor landed**, and it now ships here too as
-//! [`MetricsInterceptor`] (module `interceptor`) — same crate, same
-//! [`MetricSink`], so switching surfaces doesn't touch your sink impl.
-//! The Layer stays for non-connectrpc `tower` stacks.
+//! The `connectrpc::Interceptor` trait (connectrpc 0.7) is the natural
+//! fit for per-RPC metrics (sees `Spec::procedure`, derives status from
+//! the typed result), and ships here as [`MetricsInterceptor`] (module
+//! `interceptor`) — same crate, same [`MetricSink`], so switching
+//! surfaces doesn't touch your sink impl. The Layer stays for
+//! non-connectrpc `tower` stacks.
 //!
 //! ## Cross-platform timing
 //!

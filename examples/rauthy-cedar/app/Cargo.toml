@@ -1,6 +1,6 @@
 [package]
 name = "rauthy-cedar-app"
-description = "Shared oidc→cedar app: the ConnectRPC service + middleware stack + policies, host-agnostic (runs native AND on CF — the hosts only add JWKS-fetch + serve-loop)."
+description = "Shared full-stack app: the ConnectRPC service + the whole crates/* middleware stack + policies, host-agnostic (runs native AND on CF — the hosts add JWKS-fetch + serve-loop + inject the platform metrics sink / rate limiter)."
 version.workspace      = true
 edition.workspace      = true
 rust-version.workspace = true
@@ -12,13 +12,45 @@ publish = false
 crate-type = ["rlib"]
 
 [dependencies]
-# The guard composition + Session→Cedar extractor + Cedar loading are now
-# shared (no per-app copy). The app keeps only its policies + the stub RPC.
-connectrpc-guard = { path = "../../../crates/connectrpc-guard" }
-connectrpc-oidc  = { path = "../../../crates/connectrpc-oidc" }
+# The shared crates/* middleware stack — this app composes ALL of them in
+# make() (the one composition point), proven native AND on wasm32:
+#   guard          = OidcLayer (AuthN) + cedar_enforce (PATH authz)
+#   oidc           = the Session type + JWKS verifier
+#   cedar + interceptor = body-aware Cedar (GetDoc reads doc_id)
+#   cf-tracing     = transparent per-RPC span
+#   cf-rate-limit  = RateLimitLayer (limiter injected by the host)
+#   cf-metrics     = MetricsInterceptor (sink injected by the host)
+connectrpc-guard             = { path = "../../../crates/connectrpc-guard" }
+connectrpc-oidc              = { path = "../../../crates/connectrpc-oidc" }
+connectrpc-cedar             = { path = "../../../crates/connectrpc-cedar" }
+connectrpc-cedar-interceptor = { path = "../../../crates/connectrpc-cedar-interceptor" }
+connectrpc-cf-tracing        = { path = "../../../crates/connectrpc-cf-tracing" }
+connectrpc-cf-rate-limit     = { path = "../../../crates/connectrpc-cf-rate-limit" }
+connectrpc-cf-metrics        = { path = "../../../crates/connectrpc-cf-metrics" }
+cedar-policy                 = { workspace = true }
 
+# Published connectrpc 0.7.0 compiles the Connect JSON codec unconditionally
+# (no `json` feature exists); the workspace pin is fine as-is.
 connectrpc     = { workspace = true }
 http           = { workspace = true }
+http-body      = { workspace = true }
 http-body-util = { workspace = true }
 bytes          = { workspace = true }
 tower          = { workspace = true, features = ["util"] }
+
+# Protobuf message codegen (must match what connectrpc 0.7 resolves: buffa 0.7.1).
+buffa       = { version = "0.7", features = ["json"] }
+buffa-types = "0.7"
+serde       = { version = "1", features = ["derive"] }
+serde_json  = "1"
+
+[build-dependencies]
+connectrpc-build = "0.7"
+
+# False positives: all of these are consumed ONLY by code emitted by
+# `connectrpc::include_generated!()` (the proto codegen), which cargo-machete
+# can't see through. buffa/buffa-types = the generated message types; serde +
+# serde_json = their derives + the Connect JSON codec; http-body-util = the
+# Full body the generated service constructs. Removing any breaks the build.
+[package.metadata.cargo-machete]
+ignored = ["buffa", "buffa-types", "serde", "serde_json", "http-body-util"]

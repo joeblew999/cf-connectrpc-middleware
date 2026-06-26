@@ -13,9 +13,12 @@ use cedar_policy::{Context, Decision, EntityUid, RestrictedExpression};
 use connectrpc_cedar::{CedarAuthorizer, action::action_from_path};
 
 const SCHEMA: &str = include_str!("../../../examples/multitenant-policies/multitenant.cedarschema");
-const BILLING_POLICIES: &str = include_str!("../../../examples/multitenant-policies/policies/billing.cedar");
-const INVITATION_POLICIES: &str = include_str!("../../../examples/multitenant-policies/policies/invitation.cedar");
-const ORG_POLICIES: &str = include_str!("../../../examples/multitenant-policies/policies/org.cedar");
+const BILLING_POLICIES: &str =
+    include_str!("../../../examples/multitenant-policies/policies/billing.cedar");
+const INVITATION_POLICIES: &str =
+    include_str!("../../../examples/multitenant-policies/policies/invitation.cedar");
+const ORG_POLICIES: &str =
+    include_str!("../../../examples/multitenant-policies/policies/org.cedar");
 
 fn authorizer() -> CedarAuthorizer {
     let combined = format!("{BILLING_POLICIES}\n\n{INVITATION_POLICIES}\n\n{ORG_POLICIES}");
@@ -24,7 +27,8 @@ fn authorizer() -> CedarAuthorizer {
 }
 
 fn uid(s: &str) -> EntityUid {
-    s.parse().unwrap_or_else(|e| panic!("invalid entity uid {s:?}: {e}"))
+    s.parse()
+        .unwrap_or_else(|e| panic!("invalid entity uid {s:?}: {e}"))
 }
 
 /// Build a `ScopeContext` matching the editorial schema:
@@ -97,7 +101,8 @@ fn billing_member_cannot_read_someone_elses_billing_account() {
 fn billing_owner_can_delete_their_billing_account() {
     let authz = authorizer();
     let principal = uid(r#"User::"alice""#);
-    let action = action_from_path("/workers.billing.v1.BillingService/DeleteBillingAccount").unwrap();
+    let action =
+        action_from_path("/workers.billing.v1.BillingService/DeleteBillingAccount").unwrap();
     let resource = uid(r#"BillingAccount::"acme""#);
     let ctx = scope_ctx("acme", "owner", None);
     let (decision, _) = authz.is_authorized(&principal, &action, &resource, ctx);
@@ -108,11 +113,16 @@ fn billing_owner_can_delete_their_billing_account() {
 fn billing_member_cannot_delete_billing_account() {
     let authz = authorizer();
     let principal = uid(r#"User::"alice""#);
-    let action = action_from_path("/workers.billing.v1.BillingService/DeleteBillingAccount").unwrap();
+    let action =
+        action_from_path("/workers.billing.v1.BillingService/DeleteBillingAccount").unwrap();
     let resource = uid(r#"BillingAccount::"acme""#);
     let ctx = scope_ctx("acme", "member", None);
     let (decision, _) = authz.is_authorized(&principal, &action, &resource, ctx);
-    assert_eq!(decision, Decision::Deny, "non-owner should not delete billing");
+    assert_eq!(
+        decision,
+        Decision::Deny,
+        "non-owner should not delete billing"
+    );
 }
 
 #[test]

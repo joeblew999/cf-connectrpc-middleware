@@ -24,7 +24,7 @@ use std::sync::Arc;
 
 use cedar_policy::{Context, EntityUid, RestrictedExpression};
 use connectrpc::ConnectRpcBody;
-use connectrpc_cedar::{action::action_from_path, CedarLayer, CedarRequest};
+use connectrpc_cedar::{CedarLayer, CedarRequest, action::action_from_path};
 use connectrpc_oidc::OidcLayer;
 use http::Response;
 use tower::{Layer, Service};
@@ -46,7 +46,9 @@ pub fn load_authorizer(
 
 fn to_set(items: &[String]) -> RestrictedExpression {
     RestrictedExpression::new_set(
-        items.iter().map(|s| RestrictedExpression::new_string(s.clone())),
+        items
+            .iter()
+            .map(|s| RestrictedExpression::new_string(s.clone())),
     )
 }
 
@@ -65,7 +67,12 @@ pub fn session_to_cedar<B>(req: &http::Request<B>, resource: &str) -> Option<Ced
         ("scopes".to_string(), to_set(&session.scopes)),
     ])
     .ok()?;
-    Some(CedarRequest { principal, action, resource, context })
+    Some(CedarRequest {
+        principal,
+        action,
+        resource,
+        context,
+    })
 }
 
 /// The AUTHZ half — **auth-mechanism-agnostic**. Wrap a ConnectRPC service with
@@ -76,9 +83,17 @@ pub fn cedar_enforce<S, B>(
     authorizer: Arc<CedarAuthorizer>,
     resource: &'static str,
     inner: S,
-) -> impl Service<http::Request<B>, Response = Response<ConnectRpcBody>, Error = Infallible> + Clone
+) -> impl Service<
+    http::Request<B>,
+    Response = Response<ConnectRpcBody>,
+    Error = Infallible,
+    Future: Send,
+> + Clone
 where
+    // `Future: Send` is forwarded from the inner service so this composes
+    // under layers that require a `Send` future (e.g. `RateLimitLayer`).
     S: Service<http::Request<B>, Response = Response<ConnectRpcBody>, Error = Infallible> + Clone,
+    S::Future: Send,
     B: 'static,
 {
     CedarLayer::enforce(authorizer, move |req: &http::Request<B>| {
@@ -100,9 +115,17 @@ pub fn guard<S, B>(
     resource: &'static str,
     skip_paths: &'static [&'static str],
     inner: S,
-) -> impl Service<http::Request<B>, Response = Response<ConnectRpcBody>, Error = Infallible> + Clone
+) -> impl Service<
+    http::Request<B>,
+    Response = Response<ConnectRpcBody>,
+    Error = Infallible,
+    Future: Send,
+> + Clone
 where
+    // `Future: Send` is forwarded from the inner service so the guard composes
+    // under layers that require a `Send` future (e.g. `RateLimitLayer`).
     S: Service<http::Request<B>, Response = Response<ConnectRpcBody>, Error = Infallible> + Clone,
+    S::Future: Send,
     B: 'static,
 {
     OidcLayer::new(verifier)

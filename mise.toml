@@ -97,6 +97,17 @@ CEDAR_MCP_DIR = ".src/cedar-for-agents/js/cedar-analysis-mcp-server/mcp"
 WIPE_SQL = "DELETE FROM consumed_nonces; DELETE FROM sso_states; DELETE FROM sso_configs; DELETE FROM invoices; DELETE FROM subscriptions; DELETE FROM invitations; DELETE FROM org_memberships; DELETE FROM billing_memberships; DELETE FROM organizations; DELETE FROM billing_accounts; DELETE FROM identities; DELETE FROM users;"
 
 
+# ── TASK MAP (mise tasks) ────────────────────────────────────────────
+#  src:*      FOUNDATION   pinned upstream source (connect-rust/buffa/connectrpc-workers)
+#  cargo:*    MIDDLEWARE   build/test/lint the crates/* tower middleware
+#  cedar:*    MIDDLEWARE   Cedar policy validate/format/test + editor/MCP tooling
+#  kit:*      KUMO KIT     build/test/publish the Kumo+Connect client kit (packages/kumo-connectrpc-kit)
+#  example:*  EXAMPLE      the rauthy-cedar reference (native server + CF worker)
+#  mt:*       DEMO         the vendored multitenant demo (mt:worker / mt:web / mt:seed / mt:cf / mt:dev)
+#  stack:* deploy:*  ORCHESTRATION  the whole Rauthy+Cedar stack up/deploy
+# ─────────────────────────────────────────────────────────────────────
+
+
 # =============================================================================
 # mise:* — bootstrap
 # =============================================================================
@@ -112,19 +123,40 @@ run = "mise install"
 # =============================================================================
 
 [tasks."cargo:check"]
-description = "cargo check against the wasm32 target"
+description = "Check the whole MIXED workspace: native (incl. the native-only rauthy-cedar-server) + the wasm32 worker (the real wasm proof for the middleware)"
 shell = "nu -c"
-run = "cargo check --target $env.WASM_TARGET"
+run = """
+# The workspace is now MIXED: the crates/* middleware + the rauthy-cedar app
+# are target-agnostic, but rauthy-cedar-server is NATIVE-ONLY (hyper/tokio-net
+# → mio, which emits compile_error! on wasm32). So we can't `--target wasm32`
+# the whole workspace anymore. Instead:
+#   1. native `--workspace` covers everything, including the server.
+#   2. the wasm worker (a separate workspace) transitively compiles the whole
+#      middleware stack on wasm32 — that's the genuine wasm proof.
+cargo check --workspace
+cargo check --target $env.WASM_TARGET --manifest-path examples/rauthy-cedar/worker/Cargo.toml
+"""
 
 [tasks."cargo:build"]
-description = "Build the library (debug, fast iteration)"
+description = "Build the whole MIXED workspace: native (incl. rauthy-cedar-server) + the wasm32 worker (debug, fast iteration)"
 shell = "nu -c"
-run = "cargo build --target $env.WASM_TARGET"
+run = """
+# See cargo:check for why this is native-workspace + wasm-worker, not a single
+# `--target wasm32` across the workspace.
+cargo build --workspace
+cargo build --target $env.WASM_TARGET --manifest-path examples/rauthy-cedar/worker/Cargo.toml
+"""
 
 [tasks."cargo:build:release"]
-description = "Build the library (release, optimized for Workers)"
+description = "Build release: native workspace (incl. rauthy-cedar-server) + the wasm32 worker, optimized for Workers"
 shell = "nu -c"
-run = "cargo build --target $env.WASM_TARGET --release"
+run = """
+# Same mixed-workspace split as cargo:build (the whole-workspace wasm32 build
+# can't compile the native-only server). The wasm worker carries the Worker
+# release profile (opt-level=z, lto) in its own Cargo.toml.
+cargo build --workspace --release
+cargo build --target $env.WASM_TARGET --manifest-path examples/rauthy-cedar/worker/Cargo.toml --release
+"""
 
 [tasks."cargo:test"]
 description = "Run tests on native target (library is target-agnostic)"
@@ -132,9 +164,15 @@ shell = "nu -c"
 run = "cargo test"
 
 [tasks."cargo:lint"]
-description = "Lint with clippy (deny warnings)"
+description = "Lint the whole MIXED workspace with clippy (deny warnings): native --all-targets (incl. rauthy-cedar-server) + the wasm32 worker"
 shell = "nu -c"
-run = "cargo clippy --target $env.WASM_TARGET --all-targets -- -D warnings"
+run = """
+# Native workspace (covers the native-only server + all test targets) AND the
+# wasm worker on wasm32 (the middleware's real wasm lint surface). See
+# cargo:check for the mixed-workspace rationale.
+cargo clippy --workspace --all-targets -- -D warnings
+cargo clippy --target $env.WASM_TARGET --manifest-path examples/rauthy-cedar/worker/Cargo.toml -- -D warnings
+"""
 
 [tasks."cargo:format"]
 description = "Format code with rustfmt"
@@ -146,7 +184,10 @@ description = "Auto-fix: rustfmt + clippy --fix"
 shell = "nu -c"
 run = """
 cargo fmt --all
-cargo clippy --target $env.WASM_TARGET --all-targets --fix --allow-dirty --allow-staged -- -D warnings
+# Mixed workspace: native --all-targets covers everything (incl. the
+# native-only server); the worker is fixed on wasm32 separately.
+cargo clippy --workspace --all-targets --fix --allow-dirty --allow-staged -- -D warnings
+cargo clippy --target $env.WASM_TARGET --manifest-path examples/rauthy-cedar/worker/Cargo.toml --fix --allow-dirty --allow-staged -- -D warnings
 """
 
 [tasks."cargo:watch"]
@@ -160,9 +201,14 @@ shell = "nu -c"
 run = "cargo machete"
 
 [tasks."cargo:expand"]
-description = "Show macro-expanded output (debug connectrpc-build codegen)"
+description = "Show macro-expanded output for a crate (debug connectrpc-build codegen). Defaults to rauthy-cedar-app, where include_generated!() lives. Usage: mise run cargo:expand -- [crate]"
 shell = "nu -c"
-run = "cargo expand"
+usage = '''
+arg "crate" help="Package to expand (default: rauthy-cedar-app, the include_generated! site)" default="rauthy-cedar-app"
+'''
+# The workspace root is a virtual manifest, so `cargo expand` needs an explicit
+# package. Default to the app that actually invokes the codegen macro.
+run = "cargo expand -p $env.usage_crate"
 
 [tasks."cargo:clean"]
 description = "Remove target/ and any wasm artifacts"
@@ -184,35 +230,46 @@ run = "print 'pre-commit checks passed'"
 # =============================================================================
 
 [tasks."cedar:validate"]
-description = "Run `cedar validate` on every examples/*-policies/ tree (schema + each policy file)"
+description = "Run `cedar validate` on every Cedar policy dir: the examples/*-policies/ trees AND the rauthy-cedar example's own app/policies/ (the policies it actually runs)"
 shell = "nu -c"
 run = """
-let dirs = (glob examples/*-policies)
-if ($dirs | is-empty) {
-  print "no examples/*-policies/ dirs yet — skipping"
+# Two layouts: the standalone examples/*-policies/ trees (schema beside a
+# policies/ subdir) and the rauthy-cedar example, whose schema + policies sit
+# together in app/policies/ — both are validated so `mise run cedar:validate`
+# covers the policies the running example loads via include_str!.
+let standalone = (glob examples/*-policies | each {|dir|
+  { schema_glob: $"($dir)/*.cedarschema", policy_glob: $"($dir)/policies/*.cedar", name: ($dir | path basename) }
+})
+let inline = (glob examples/*/app/policies | each {|dir|
+  { schema_glob: $"($dir)/*.cedarschema", policy_glob: $"($dir)/*.cedar", name: ($dir | path dirname | path dirname | path basename) }
+})
+let trees = ($standalone | append $inline)
+if ($trees | is-empty) {
+  print "no Cedar policy dirs found — skipping"
   exit 0
 }
-for dir in $dirs {
-  let schemas = (glob $"($dir)/*.cedarschema")
+for tree in $trees {
+  let schemas = (glob $tree.schema_glob)
   if ($schemas | is-empty) {
-    print $"($dir): no .cedarschema — skipping"
+    print $"($tree.name): no .cedarschema — skipping"
     continue
   }
   let schema = ($schemas | first)
   cedar check-parse --schema $schema
-  for policy in (glob $"($dir)/policies/*.cedar") {
-    print $"validate ($policy | path basename)"
+  for policy in (glob $tree.policy_glob) {
+    print $"validate ($tree.name)/($policy | path basename)"
     cedar validate --schema $schema --policies $policy
   }
-  print $"($dir | path basename): OK"
+  print $"($tree.name): OK"
 }
 """
 
 [tasks."cedar:format"]
-description = "Format every examples/*-policies/policies/*.cedar file in place"
+description = "Format every Cedar policy file in place: examples/*-policies/policies/ AND the rauthy-cedar example's app/policies/"
 shell = "nu -c"
 run = """
-for policy in (glob examples/*-policies/policies/*.cedar) {
+let files = (glob examples/*-policies/policies/*.cedar | append (glob examples/*/app/policies/*.cedar))
+for policy in $files {
   cedar format --policies $policy --write
 }
 """
@@ -237,14 +294,109 @@ for runner in $runners {
 
 
 # =============================================================================
-# kumo:* — Kumo UI frontend helpers (for consumer examples)
+# example:* — THIS repo's real reference example (examples/rauthy-cedar):
+# the crates/* middleware proven on a real connectrpc + buffa service,
+# running native AND on a Cloudflare Worker from one shared app.
 # =============================================================================
 
+[tasks."example:check"]
+description = "Build the rauthy-cedar example both ways: native server + wasm worker"
+shell = "nu -c"
+run = """
+cargo check -p rauthy-cedar-app -p rauthy-cedar-server
+cargo check --target $env.WASM_TARGET --manifest-path examples/rauthy-cedar/worker/Cargo.toml
+"""
+
+[tasks."example:test"]
+description = "Test the rauthy-cedar example: crate tests + the Cedar policy proof (no external deps)"
+shell = "nu -c"
+run = """
+cargo test -p rauthy-cedar-app -p rauthy-cedar-server
+nu examples/rauthy-cedar/tests/run.nu
+"""
+
+[tasks."example:serve"]
+description = "Run the rauthy-cedar NATIVE server e2e: boots Rauthy in Docker, mints a token, asserts the 4 oidc→cedar cases (needs a Docker daemon)"
+shell = "nu -c"
+run = "nu examples/rauthy-cedar/server/serve.nu"
+
+[tasks."example:worker"]
+description = "Run the rauthy-cedar CF Worker via wrangler dev (needs a Rauthy at :8088 — start one with example:serve or vm-uncloud recipe:local)"
+shell = "nu -c"
+run = """
+cd examples/rauthy-cedar/worker
+wrangler dev
+"""
+
+
 # =============================================================================
-# worker:* — run the multitenant rust worker locally via wrangler
+# kit:* — KUMO KIT — build/test/publish the Kumo+ConnectRPC client kit at
+# packages/kumo-connectrpc-kit. These root tasks delegate into the kit dir;
+# they mirror packages/kumo-connectrpc-kit/mise.toml so the pillar is visible
+# from the repo root. JSR doesn't transpile JSX, so the kit is PRE-BUILT (tsc)
+# to dist/ and the compiled .js + .d.ts are published.
 # =============================================================================
 
-[tasks."worker:d1-migrate"]
+[tasks."kit:install"]
+description = "Install the kit's peer/dev deps (react, @cloudflare/kumo, @connectrpc/*) via pnpm"
+shell = "nu -c"
+run = """
+cd packages/kumo-connectrpc-kit
+pnpm install
+"""
+
+[tasks."kit:typecheck"]
+description = "Type-check the kit (tsc --noEmit)"
+shell = "nu -c"
+run = """
+cd packages/kumo-connectrpc-kit
+pnpm exec tsc --noEmit
+"""
+
+[tasks."kit:build"]
+description = "Compile the kit's src/*.{ts,tsx} → dist/*.js + *.d.ts (JSX compiled; JSR won't)"
+shell = "nu -c"
+run = """
+cd packages/kumo-connectrpc-kit
+rm -rf dist
+pnpm exec tsc
+"""
+
+[tasks."kit:test"]
+description = "Run the kit's test suite (vitest run)"
+shell = "nu -c"
+run = """
+cd packages/kumo-connectrpc-kit
+pnpm exec vitest run
+"""
+
+[tasks."kit:jsr-check"]
+description = "JSR dry-run on the kit (slow-types, packaging) — no publish"
+shell = "nu -c"
+run = """
+cd packages/kumo-connectrpc-kit
+pnpm dlx jsr publish --dry-run --allow-dirty
+"""
+
+[tasks."kit:jsr-publish"]
+description = "Publish the kit to JSR. Normally CI does this on push (OIDC); this is the manual path."
+shell = "nu -c"
+run = """
+cd packages/kumo-connectrpc-kit
+pnpm dlx jsr publish
+"""
+
+
+# =============================================================================
+# VENDORED MULTITENANT DEMO — the task groups below (all `mt:*`:
+# mt:worker:* · mt:web:* · mt:seed:* · mt:cf:* · mt:dev:*) all drive
+# `.src/example-multitenant-worker`, a
+# gitignored connyay reference app. It is NOT this repo's library (crates/*)
+# nor its example (examples/rauthy-cedar/, see example:* above). Kept for the
+# deployed multitenant demo; ignore them when working on the library itself.
+# =============================================================================
+
+[tasks."mt:worker:d1-migrate"]
 description = "Apply D1 migrations to the local Workers SQLite simulator"
 shell = "nu -c"
 run = """
@@ -252,7 +404,7 @@ cd $env.MULTITENANT_WORKER
 wrangler d1 migrations apply DB --local
 """
 
-[tasks."worker:dev"]
+[tasks."mt:worker:dev"]
 description = "Run the multitenant worker (wrangler dev, HTTPS, serves web-kumo/dist)"
 shell = "nu -c"
 run = """
@@ -262,41 +414,42 @@ wrangler dev --local-protocol=https --port=8787
 
 
 # =============================================================================
-# dev:* — process supervision (pitchfork) for long-running daemons
-# Config lives in pitchfork.toml at the project root.
+# mt:dev:* — process supervision (pitchfork) for the vendored multitenant
+# demo's long-running daemons. Config lives in pitchfork.toml at the project root.
 # =============================================================================
 
-[tasks."dev:up"]
+[tasks."mt:dev:up"]
 description = "Start worker + web (pitchfork daemons), keep them alive"
 shell = "nu -c"
 run = "pitchfork start -l -f"
 
-[tasks."dev:down"]
+[tasks."mt:dev:down"]
 description = "Stop worker + web daemons"
 shell = "nu -c"
 run = "pitchfork stop worker web"
 
-[tasks."dev:status"]
+[tasks."mt:dev:status"]
 description = "Show running pitchfork daemons"
 shell = "nu -c"
 run = "pitchfork list"
 
-[tasks."dev:logs"]
+[tasks."mt:dev:logs"]
 description = "Tail combined logs for worker + web"
 shell = "nu -c"
 run = "pitchfork logs worker web"
 
-[tasks."dev:tui"]
+[tasks."mt:dev:tui"]
 description = "Pitchfork's interactive TUI dashboard"
 shell = "nu -c"
 run = "pitchfork tui"
 
 
 # =============================================================================
-# kumo:* — Kumo UI work in the multitenant fork's web-kumo/
+# mt:web:* — frontend work in the vendored multitenant demo's web-kumo/
+# (NOT the kit:* Kumo client kit — these develop the demo's own frontend).
 # =============================================================================
 
-[tasks."kumo:web-install"]
+[tasks."mt:web:install"]
 description = "Install Kumo + Tailwind into the multitenant web-kumo/ (pnpm)"
 shell = "nu -c"
 run = """
@@ -305,7 +458,7 @@ pnpm add -D @cloudflare/kumo tailwindcss postcss autoprefixer
 pnpm add @phosphor-icons/react
 """
 
-[tasks."kumo:web-init"]
+[tasks."mt:web:init"]
 description = "Run `kumo init` in web-kumo/ (creates kumo.json)"
 shell = "nu -c"
 run = """
@@ -313,7 +466,7 @@ cd $env.MULTITENANT_WEB
 pnpm exec kumo init
 """
 
-[tasks."kumo:web-dev"]
+[tasks."mt:web:dev"]
 description = "Vite dev server in web-kumo/ (HTTPS :5173, prod-parity)"
 shell = "nu -c"
 run = """
@@ -321,7 +474,7 @@ cd $env.MULTITENANT_WEB
 pnpm dev
 """
 
-[tasks."kumo:web-dev-http"]
+[tasks."mt:web:dev-http"]
 description = "Vite dev server, HTTP on :5175 (for headless screenshot tools)"
 shell = "nu -c"
 run = """
@@ -329,7 +482,7 @@ cd $env.MULTITENANT_WEB
 pnpm dev:http
 """
 
-[tasks."kumo:web-build"]
+[tasks."mt:web:build"]
 description = "Build web-kumo/ for production (output: dist/)"
 shell = "nu -c"
 run = """
@@ -337,16 +490,16 @@ cd $env.MULTITENANT_WEB
 pnpm build
 """
 
-[tasks."kumo:web-reload"]
+[tasks."mt:web:reload"]
 description = "Rebuild web-kumo/ and restart pitchfork's worker daemon so :8787 serves the fresh dist/ (otherwise wrangler keeps the old asset manifest)"
 shell = "nu -c"
-depends = ["kumo:web-build"]
+depends = ["mt:web:build"]
 run = """
 pitchfork stop worker
 pitchfork start worker
 """
 
-[tasks."kumo:theme-gen"]
+[tasks."mt:web:theme-gen"]
 description = "Regenerate src/styles/theme-editorial.css from scripts/theme-generator/config.editorial.mjs (validates token names against Kumo's THEME_CONFIG)"
 shell = "nu -c"
 run = """
@@ -354,7 +507,7 @@ cd $env.MULTITENANT_WEB
 pnpm theme:gen
 """
 
-[tasks."seed:dev"]
+[tasks."mt:seed:dev"]
 description = "ATOMIC — wipe local D1, then seed the EDITORIAL scenario. After this runs the local DB has alice/bob/carol/dave + Acme orgs and NOTHING ELSE."
 shell = "nu -c"
 run = """
@@ -366,7 +519,7 @@ cd $"($root)/($env.MULTITENANT_WEB)"
 SCENARIO=editorial pnpm seed:dev
 """
 
-[tasks."seed:dev:remysport"]
+[tasks."mt:seed:dev:remysport"]
 description = "ATOMIC — wipe local D1, then seed the REMYSPORT scenario. After this runs the local DB has coach/captain/scout/manager + Bangkok Suns teams and NOTHING ELSE."
 shell = "nu -c"
 run = """
@@ -378,7 +531,7 @@ cd $"($root)/($env.MULTITENANT_WEB)"
 SCENARIO=remysport pnpm seed:dev
 """
 
-[tasks."kumo:list-blocks"]
+[tasks."mt:web:list-blocks"]
 description = "List available Kumo blocks (catalog from registry)"
 shell = "nu -c"
 run = """
@@ -386,7 +539,7 @@ cd $env.MULTITENANT_WEB
 pnpm exec kumo blocks
 """
 
-[tasks."kumo:list-components"]
+[tasks."mt:web:list-components"]
 description = "List Kumo blocks already installed in src/components/kumo/"
 shell = "nu -c"
 run = """
@@ -394,19 +547,19 @@ cd $env.MULTITENANT_WEB
 pnpm exec kumo ls
 """
 
-[tasks."kumo:add-block"]
-description = "Copy a Kumo block's source into src/components/kumo/. Usage: mise run kumo:add-block -- <BlockName>"
+[tasks."mt:web:add-block"]
+description = "Copy a Kumo block's source into src/components/kumo/. Usage: mise run mt:web:add-block -- <BlockName>"
 shell = "nu -c"
 usage = '''
-arg "block" help="Block name (e.g. PageHeader, ResourceListPage, DeleteResource). Run kumo:list-blocks to see what's available."
+arg "block" help="Block name (e.g. PageHeader, ResourceListPage, DeleteResource). Run mt:web:list-blocks to see what's available."
 '''
 run = """
 cd $env.MULTITENANT_WEB
 pnpm exec kumo add $env.usage_block
 """
 
-[tasks."kumo:doc"]
-description = "Show docs for a Kumo component. Usage: mise run kumo:doc -- <ComponentName>"
+[tasks."mt:web:kumo-doc"]
+description = "Show docs for a Kumo component. Usage: mise run mt:web:kumo-doc -- <ComponentName>"
 shell = "nu -c"
 usage = '''
 arg "component" help="Component name (e.g. Button, Sidebar, Table)"
@@ -416,7 +569,7 @@ cd $env.MULTITENANT_WEB
 pnpm exec kumo doc $env.usage_component
 """
 
-[tasks."kumo:docs"]
+[tasks."mt:web:kumo-docs"]
 description = "Dump docs for ALL Kumo components in one go (pipe to a file for reference)."
 shell = "nu -c"
 run = """
@@ -424,7 +577,7 @@ cd $env.MULTITENANT_WEB
 pnpm exec kumo docs
 """
 
-[tasks."kumo:ai"]
+[tasks."mt:web:kumo-ai"]
 description = "Print the Kumo AI usage guide — the canonical API + variants reference. Run this BEFORE adding a new Kumo component to the codebase; it answers what props/compound subcomponents to use."
 shell = "nu -c"
 run = """
@@ -432,7 +585,7 @@ cd $env.MULTITENANT_WEB
 pnpm exec kumo ai
 """
 
-[tasks."kumo:migrate"]
+[tasks."mt:web:kumo-migrate"]
 description = "Show Kumo token rename map (helpful when bumping the @cloudflare/kumo version). Use --classes for class-level mappings."
 shell = "nu -c"
 run = """
@@ -484,6 +637,105 @@ for repo in (ls .src | where type == dir | get name) {
   print $"=== ($repo) ==="
   git -C $repo status -sb
 }
+"""
+
+# STALENESS GUARD. `.src/` clones are snapshots and go stale — this fetches
+# each clone's remotes and reports how many commits behind its tracked branch
+# it is, plus the connectrpc pin the clone currently holds. A non-zero
+# "behind" means DO NOT trust this clone for version facts — refresh it
+# (`mise run src:update`) or check upstream `main` directly.
+[tasks."src:check"]
+description = "Verify .src/ clones: tag-deps match Cargo.lock; fork clones report commits-behind (staleness guard)"
+shell = "nu -c"
+run = """
+# Pinned foundation source (managed by src:sync):
+#  tagdeps = checked out at v<Cargo.lock version>;  refdeps = at a fixed commit.
+let tagdeps = { "connect-rust": "connectrpc", "buffa": "buffa" }
+let refdeps = { "connectrpc-workers": "a366077" }
+let lock = (open Cargo.lock | from toml)
+for repo in (ls .src | where type == dir | get name) {
+  let name = ($repo | path basename)
+  print $"=== ($name) ==="
+  git -C $repo fetch --quiet --all
+  if ($name in ($tagdeps | columns)) {
+    # Tag-pinned dep: the clone MUST sit at the tag matching our locked version.
+    let crate = ($tagdeps | get $name)
+    let want = $"v(($lock.package | where name == $crate | get version | first))"
+    let have = (do { git -C $repo describe --tags --exact-match } | complete | get stdout | str trim)
+    let flag = (if $have == $want { $"on ($have) = Cargo.lock ✓" } else { $"⚠️  on '($have)' but Cargo.lock wants ($want) — run `mise run src:sync`" })
+    print $"  ($flag)"
+  } else if ($name in ($refdeps | columns)) {
+    # Commit-pinned dep (no release tag for the version we need).
+    let want = ($refdeps | get $name)
+    let have = (do { git -C $repo rev-parse --short HEAD } | complete | get stdout | str trim)
+    let flag = (if $have == $want { $"on ($have) = pinned commit ✓ — no 0.7 tag yet" } else { $"⚠️  on ($have) but pinned to ($want) — run `mise run src:sync`" })
+    print $"  ($flag)"
+  } else {
+    # Fork / reference clone: report commits-behind its tracked upstream branch.
+    let remotes = (git -C $repo remote | lines)
+    let ref = (if ("upstream" in $remotes) { "upstream/main" } else { "origin/main" })
+    let behind = (do { git -C $repo rev-list --count $"HEAD..($ref)" } | complete)
+    if $behind.exit_code == 0 {
+      let n = ($behind.stdout | str trim)
+      let flag = (if $n == "0" { "up to date" } else { $"⚠️  ($n) commits BEHIND ($ref) — STALE, do not trust for versions" })
+      print $"  ($flag)"
+    } else {
+      print $"  (could not compare against ($ref))"
+    }
+    let cargo = $"($repo)/Cargo.toml"
+    if ($cargo | path exists) {
+      let pins = (open --raw $cargo | lines | where ($it =~ '^\\s*connectrpc\\s*=') )
+      if ($pins | is-not-empty) { print $"  connectrpc pin in clone: ($pins | first | str trim)" }
+    }
+  }
+}
+print ""
+print "tag-deps (connectrpc/buffa) = read-only source matching our pins (src:sync)."
+print "fork/reference clones drift — verify upstream main, not the clone."
+"""
+
+# PER-TAG dependency source. The crate deps we PIN (connectrpc, buffa) get a
+# read-only `.src/` clone checked out at the git tag matching our Cargo.lock
+# version — so the source we READ is EXACTLY the version we COMPILE against
+# (can't be stale, can't drift ahead). Re-run after any Cargo bump to move the
+# clones to the new tag. These are distinct from the connyay FORK clones
+# (working `cedar` branch) which track upstream via src:check.
+[tasks."src:sync"]
+description = "Pin the foundation source clones: connectrpc+buffa at the Cargo.lock tag; connectrpc-workers at a commit (no 0.7 tag yet)"
+shell = "nu -c"
+run = """
+# Tier A1 — tag-derived: tag = v<version-in-Cargo.lock>. Repo-wide vX.Y.Z scheme.
+let lockdeps = [
+  { repo: "anthropics/connect-rust", crate: "connectrpc" }
+  { repo: "anthropics/buffa",        crate: "buffa" }
+]
+# Tier A2 — ref-pinned: deps NOT in our Cargo.lock (no crate to derive from),
+# OR that have no release tag for the version we need. connectrpc-workers' 0.7
+# code is main-only (newest tag v0.3.1 is connectrpc 0.6) → pin the commit.
+# Switch `ref` to a tag once connectrpc-workers cuts a 0.7 release.
+let refdeps = [
+  { repo: "connyay/connectrpc-workers", ref: "a366077" }
+]
+let lock = (open Cargo.lock | from toml)
+for d in $lockdeps {
+  let dir = $".src/($d.repo | path basename)"
+  let ver = ($lock.package | where name == $d.crate | get version | first)
+  let want = $"v($ver)"
+  if not ($dir | path exists) { print $"cloning ($d.repo)"; git clone --quiet $"https://github.com/($d.repo).git" $dir }
+  git -C $dir fetch --quiet --tags
+  let co = (do { git -C $dir checkout --quiet $want } | complete)
+  if $co.exit_code == 0 { print $"  ($d.crate) ($ver) → @ ($want) ✓" } else { print $"  ⚠️  ($d.crate): tag ($want) missing — check tag scheme" }
+}
+for d in $refdeps {
+  let dir = $".src/($d.repo | path basename)"
+  if not ($dir | path exists) { print $"cloning ($d.repo)"; git clone --quiet $"https://github.com/($d.repo).git" $dir }
+  git -C $dir fetch --quiet --all
+  let co = (do { git -C $dir checkout --quiet $d.ref } | complete)
+  if $co.exit_code == 0 { print $"  ($d.repo | path basename) → @ ($d.ref) — commit-pin, no 0.7 tag yet ✓" } else { print $"  ⚠️  ($d.repo | path basename): ref ($d.ref) missing" }
+}
+print ""
+print "READ-ONLY source matching our pins. connectrpc-workers is commit-pinned"
+print "until it releases 0.7 — then switch its `ref` to the tag."
 """
 
 [tasks."src:fork"]
@@ -556,14 +808,15 @@ for entry in (ls .src | where type == dir) {
 
 
 # =============================================================================
-# cf:* / worker:* — Cloudflare deploy lifecycle (deploy → seed → teardown).
+# mt:cf:* / mt:worker:* — the vendored multitenant demo's Cloudflare deploy
+# lifecycle (deploy → seed → teardown).
 #
 # Secrets resolve via fnox.toml ↔ macOS keychain. All tasks shell out to
 # wrangler under `fnox exec --` so CLOUDFLARE_API_TOKEN / ACCOUNT_ID land
 # in the environment without touching the filesystem.
 # =============================================================================
 
-[tasks."cf:check"]
+[tasks."mt:cf:check"]
 description = "Verify CF auth + required fnox secrets resolve. Safe to re-run."
 shell = "nu -c"
 run = """
@@ -571,7 +824,7 @@ fnox check
 fnox exec -- wrangler whoami
 """
 
-[tasks."cf:bootstrap"]
+[tasks."mt:cf:bootstrap"]
 description = "First-time setup: generate SESSION_KEY (32 random bytes, base64) and store in keychain. Re-running OVERWRITES the existing key — only do this before any users have signed up."
 shell = "nu -c"
 run = """
@@ -583,7 +836,7 @@ fnox set -p keychain CONNECTRPC_CEDAR_SESSION_KEY $key
 print "stored in keychain under CONNECTRPC_CEDAR_SESSION_KEY"
 """
 
-[tasks."worker:d1-create-remote"]
+[tasks."mt:worker:d1-create-remote"]
 description = "Create the remote D1 database for this fork and stash its id in fnox. Idempotent (skips if id already in keychain)."
 shell = "nu -c"
 run = """
@@ -606,10 +859,10 @@ fnox set -p keychain CONNECTRPC_CEDAR_D1_DATABASE_ID $id
 print $"stored database_id: ($id)"
 print ""
 print "NEXT: copy this id into .src/example-multitenant-worker/wrangler.toml"
-print "      under [[d1_databases]].database_id, then run worker:d1-migrate-remote."
+print "      under [[d1_databases]].database_id, then run mt:worker:d1-migrate-remote."
 """
 
-[tasks."worker:d1-migrate-remote"]
+[tasks."mt:worker:d1-migrate-remote"]
 description = "Apply migrations to the REMOTE D1. Requires wrangler.toml's database_id to match $CONNECTRPC_CEDAR_D1_DATABASE_ID."
 shell = "nu -c"
 run = """
@@ -617,7 +870,7 @@ cd $env.MULTITENANT_WORKER
 fnox exec -- wrangler d1 migrations apply DB --remote
 """
 
-[tasks."worker:deploy"]
+[tasks."mt:worker:deploy"]
 description = "ATOMIC — build (VITE_SEED_SCENARIO=editorial) + deploy + wipe remote D1 + seed editorial. After this runs the prod deploy is serving editorial and the prod DB has ONLY editorial users."
 shell = "nu -c"
 run = """
@@ -650,14 +903,14 @@ if ($url | is-not-empty) {
   }
   print $"deployed: ($full)  [scenario=editorial]"
 }
-# Atomic: wipe + seed editorial. Calls seed:prod which does both.
+# Atomic: wipe + seed editorial. Calls mt:seed:prod which does both.
 cd $root
 print ""
 print "── resetting prod DB to editorial-only ──"
-mise run seed:prod
+mise run mt:seed:prod
 """
 
-[tasks."worker:deploy:remysport"]
+[tasks."mt:worker:deploy:remysport"]
 description = "ATOMIC — build (VITE_SEED_SCENARIO=remysport) + deploy + wipe remote D1 + seed remysport. After this runs the prod deploy is serving remysport and the prod DB has ONLY remysport users. Same Worker name as editorial — overwrites."
 shell = "nu -c"
 run = """
@@ -686,10 +939,10 @@ if ($url | is-not-empty) {
 cd $root
 print ""
 print "── resetting prod DB to remysport-only ──"
-mise run seed:prod:remysport
+mise run mt:seed:prod:remysport
 """
 
-[tasks."seed:prod"]
+[tasks."mt:seed:prod"]
 description = "ATOMIC — wipe remote D1, then seed the EDITORIAL scenario. After this runs the prod DB has alice/bob/carol/dave + Acme orgs and NOTHING ELSE."
 shell = "nu -c"
 run = """
@@ -703,7 +956,7 @@ print $"seeding ($base) with editorial scenario"
 BASE=$base SCENARIO=editorial pnpm seed:dev
 """
 
-[tasks."seed:prod:remysport"]
+[tasks."mt:seed:prod:remysport"]
 description = "ATOMIC — wipe remote D1, then seed the REMYSPORT scenario. After this runs the prod DB has coach/captain/scout/manager + Bangkok Suns teams and NOTHING ELSE."
 shell = "nu -c"
 run = """
@@ -717,7 +970,7 @@ print $"seeding ($base) with remysport scenario"
 BASE=$base SCENARIO=remysport pnpm seed:dev
 """
 
-[tasks."worker:teardown"]
+[tasks."mt:worker:teardown"]
 description = "DESTRUCTIVE — delete the deployed Worker + remote D1. Asks for confirmation. Keychain entries are LEFT in place so you can redeploy."
 shell = "nu -c"
 run = """
@@ -744,7 +997,7 @@ if ($dbid | is-not-empty) {
   fnox rm CONNECTRPC_CEDAR_D1_DATABASE_ID
 }
 fnox rm CONNECTRPC_CEDAR_WORKER_URL
-print "torn down. SESSION_KEY left in keychain — run cf:bootstrap again if you want a fresh one."
+print "torn down. SESSION_KEY left in keychain — run mt:cf:bootstrap again if you want a fresh one."
 """
 
 
@@ -816,6 +1069,30 @@ description = "Launch cedar-language-server over stdio. Editors (Neovim/Helix) t
 shell = "nu -c"
 run = "cedar-language-server"
 
+[tasks."cedar:vscode"]
+description = "Install the official Cedar VS Code extension (cedar-policy.vscode-cedar) into your editor. Companion to .vscode/extensions.json (which recommends it) and cedar:lsp (the language server it bundles)."
+shell = "nu -c"
+run = """
+# Installs https://github.com/cedar-policy/vscode-cedar
+# (marketplace id `cedar-policy.vscode-cedar`). Tries the VS Code-family
+# editor CLIs in order; --force makes it idempotent (install or update).
+let ext = "cedar-policy.vscode-cedar"
+mut cli = ""
+for c in [code cursor codium code-insiders] {
+  if (which $c | is-not-empty) { $cli = $c; break }
+}
+if ($cli == "") {
+  print "No VS Code-family CLI on PATH (tried code, cursor, codium, code-insiders)."
+  print $"Install ($ext) from your editor's Extensions view, or enable the shell"
+  print "command first: Cmd/Ctrl+Shift+P → 'Shell Command: Install code in PATH'."
+  print "Source: https://github.com/cedar-policy/vscode-cedar"
+  exit 1
+}
+print $"Installing ($ext) via ($cli) ..."
+^$cli --install-extension $ext --force
+print $"Installed via ($cli). .vscode/extensions.json also recommends it on repo open."
+"""
+
 [tasks."cedar:mcp:install"]
 description = "Clone cedar-policy/cedar-for-agents into $CEDAR_AGENTS_DIR (if absent) and build the analysis MCP server (npm ci + tsc → dist/server.js). Upstream ships it Docker-only; we build from source with the mise node toolchain instead."
 shell = "nu -c"
@@ -881,10 +1158,9 @@ if ($env.usage_output | is-empty) {
 
 # ── stack:* / deploy:* — the auth-stack orchestration (folded in from the old
 # `iam` repo, 2026-06-23). This repo IS the shared foundation for all projects:
-# the crates + the kit + the examples + how to run the whole stack + how to
-# adopt it (docs/NEW-PROJECT.md, docs/AUTH-STACK.md). vm-uncloud stays the
-# Rauthy IdP runner (infra SSOT); these just sequence it with this repo's
-# rauthy-cedar example.
+# the crates + the kit + the examples + how to run the whole stack. vm-uncloud
+# stays the Rauthy IdP runner (infra SSOT); these just sequence it with this
+# repo's rauthy-cedar example.
 
 [tasks."stack:local"]
 description = "Whole Rauthy+Cedar stack UP locally (Docker + ../vm-uncloud) — drives a REAL token through oidc→cedar, leaves Rauthy's GUI up. `-- --down` to tear down."

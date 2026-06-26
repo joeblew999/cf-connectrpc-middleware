@@ -10,7 +10,7 @@
 //!   cargo test -p connectrpc-oidc --test live_rauthy -- --ignored --nocapture
 //! ```
 
-use connectrpc_oidc::{session_from_claims, JwksVerifier};
+use connectrpc_oidc::{JwksVerifier, session_from_claims};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[test]
@@ -19,7 +19,10 @@ fn verifies_real_rauthy_user_token() {
     let token = std::fs::read_to_string(std::env::var("RAUTHY_TOKEN_FILE").unwrap()).unwrap();
     let jwks = std::fs::read_to_string(std::env::var("RAUTHY_JWKS_FILE").unwrap()).unwrap();
     let issuer = std::env::var("RAUTHY_ISSUER").unwrap();
-    let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
 
     // Verify the real token against Rauthy's real JWKS, enforcing aud.
     let verifier =
