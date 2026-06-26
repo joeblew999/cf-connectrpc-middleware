@@ -4,7 +4,7 @@
 # BACKEND (api) Worker via `wrangler dev` (miniflare) on :8787, asserts the SAME
 # middleware cases over HTTP plus the worker-specific gRPC reflection, then tears
 # everything down. The multi-Worker gateway shape is a separate e2e — see
-# ../gateway/serve.nu (mise run example:gateway:e2e).
+# ../gateway/serve.nu (mise run example:gateway).
 #
 #   nu examples/rauthy-cedar/worker/serve.nu     # needs a local Docker daemon + wrangler
 #

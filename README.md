@@ -77,9 +77,6 @@ mise tasks                                        # everything else
 See [`examples/rauthy-cedar/README.md`](./examples/rauthy-cedar/README.md) for
 both run paths and the expected output.
 
-The `mt:*` mise tasks target a separate multitenant demo (a vendored `.src/`
-worker), not the rauthy-cedar example.
-
 ## Dependency source (`.src/`)
 
 `.src/` (gitignored) holds the upstream source we read, pinned so it can't go
