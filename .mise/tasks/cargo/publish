@@ -1,0 +1,15 @@
+#!/usr/bin/env nu
+#MISE description="Publish all workspace crates to crates.io. DRY by default; `-- --execute` publishes for real (IRREVERSIBLE — needs `cargo login`)."
+# `cargo publish --workspace` (cargo 1.90+) publishes every non-`publish=false`
+# member, ordering by dependency and waiting for each to index before the
+# crates that depend on it — so the 9 connectrpc-* crates go up in one command;
+# the rauthy-cedar example crates are `publish = false` and skipped.
+def main [--execute] {
+  if $execute {
+    print "EXECUTE — publishing all crates to crates.io for real. IRREVERSIBLE."
+    ^cargo publish --workspace
+  } else {
+    print "DRY RUN — nothing is published. Pass `-- --execute` to publish (IRREVERSIBLE; needs `cargo login`)."
+    ^cargo publish --workspace --dry-run
+  }
+}
