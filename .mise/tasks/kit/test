@@ -1,0 +1,4 @@
+#!/usr/bin/env nu
+#MISE description="Run the kit's test suite (vitest run)"
+cd packages/kumo-connectrpc-kit
+aubr test

@@ -1,0 +1,21 @@
+#!/usr/bin/env nu
+#MISE description="Render the entity graph for each examples/*-policies/tests/entities.json to <dir>/entities.dot. Also writes .svg if `dot` is on PATH."
+let entity_files = (glob examples/*-policies/tests/entities.json)
+if ($entity_files | is-empty) { print "no examples/*-policies/tests/entities.json — skipping"; exit 0 }
+let has_dot = ((which dot | length) > 0)
+if (not $has_dot) {
+  print "note: `dot` not on PATH (graphviz isn't in mise's registry) — writing .dot only."
+  print "      to get SVGs: install graphviz, or render the .dot at https://dreampuf.github.io/GraphvizOnline"
+}
+for ef in $entity_files {
+  let dir = ($ef | path dirname | path dirname)
+  let name = ($dir | path basename)
+  let dot = $"($dir)/entities.dot"
+  cedar visualize --entities $ef out> $dot
+  print $"($name): wrote ($dot)"
+  if $has_dot {
+    let svg = $"($dir)/entities.svg"
+    dot -Tsvg $dot out> $svg
+    print $"($name): wrote ($svg)"
+  }
+}

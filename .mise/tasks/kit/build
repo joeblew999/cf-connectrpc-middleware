@@ -1,0 +1,4 @@
+#!/usr/bin/env nu
+#MISE description="Compile the kit's src/*.{ts,tsx} → dist/*.js + *.d.ts (JSX compiled; JSR won't)"
+cd packages/kumo-connectrpc-kit
+aubr build

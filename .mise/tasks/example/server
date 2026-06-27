@@ -1,0 +1,3 @@
+#!/usr/bin/env nu
+#MISE description="Run + prove the rauthy-cedar NATIVE server host: boots Rauthy in Docker, mints a token, runs the native hyper server, asserts the oidc→cedar cases (needs Docker)"
+nu examples/rauthy-cedar/server/serve.nu

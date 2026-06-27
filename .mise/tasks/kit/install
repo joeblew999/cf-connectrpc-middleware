@@ -1,0 +1,4 @@
+#!/usr/bin/env nu
+#MISE description="Install the kit's peer/dev deps (react, @cloudflare/kumo, @connectrpc/*) via aube"
+cd packages/kumo-connectrpc-kit
+aube install

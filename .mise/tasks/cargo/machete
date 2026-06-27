@@ -1,0 +1,3 @@
+#!/usr/bin/env nu
+#MISE description="Find unused dependencies (matters for wasm binary size)"
+cargo machete

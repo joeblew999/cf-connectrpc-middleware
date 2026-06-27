@@ -1,0 +1,8 @@
+#!/usr/bin/env nu
+#MISE description="Check the MIXED workspace: native --workspace (incl. native-only rauthy-cedar-server) + wasm32 worker + wasm32 gateway (the real wasm proof)"
+# Mixed workspace: server is native-only (mio → compile_error! on wasm32), so
+# native --workspace covers it; the wasm worker/gateway transitively compile the
+# whole middleware on wasm32 — the genuine wasm proof.
+cargo check --workspace
+cargo check --target $env.WASM_TARGET --manifest-path examples/rauthy-cedar/worker/Cargo.toml
+cargo check --target $env.WASM_TARGET --manifest-path examples/rauthy-cedar/gateway/Cargo.toml

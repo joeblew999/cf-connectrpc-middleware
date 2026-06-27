@@ -1,0 +1,3 @@
+#!/usr/bin/env nu
+#MISE description="Install all CLI tools defined in mise.toml"
+mise install

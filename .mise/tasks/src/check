@@ -1,0 +1,41 @@
+#!/usr/bin/env nu
+#MISE description="Verify .src/ clones: tag-deps match Cargo.lock; fork clones report commits-behind (staleness guard — non-zero behind means DO NOT trust for versions)"
+let tagdeps = { "connect-rust": "connectrpc", "buffa": "buffa" }
+let refdeps = { "connectrpc-workers": "a366077" }
+let lock = (open Cargo.lock | from toml)
+for repo in (ls .src | where type == dir | get name) {
+  let name = ($repo | path basename)
+  print $"=== ($name) ==="
+  git -C $repo fetch --quiet --all
+  if ($name in ($tagdeps | columns)) {
+    let crate = ($tagdeps | get $name)
+    let want = $"v(($lock.package | where name == $crate | get version | first))"
+    let have = (do { git -C $repo describe --tags --exact-match } | complete | get stdout | str trim)
+    let flag = (if $have == $want { $"on ($have) = Cargo.lock ✓" } else { $"⚠️  on '($have)' but Cargo.lock wants ($want) — run `mise run src:sync`" })
+    print $"  ($flag)"
+  } else if ($name in ($refdeps | columns)) {
+    let want = ($refdeps | get $name)
+    let have = (do { git -C $repo rev-parse --short HEAD } | complete | get stdout | str trim)
+    let flag = (if $have == $want { $"on ($have) = pinned commit ✓ — no 0.7 tag yet" } else { $"⚠️  on ($have) but pinned to ($want) — run `mise run src:sync`" })
+    print $"  ($flag)"
+  } else {
+    let remotes = (git -C $repo remote | lines)
+    let ref = (if ("upstream" in $remotes) { "upstream/main" } else { "origin/main" })
+    let behind = (do { git -C $repo rev-list --count $"HEAD..($ref)" } | complete)
+    if $behind.exit_code == 0 {
+      let n = ($behind.stdout | str trim)
+      let flag = (if $n == "0" { "up to date" } else { $"⚠️  ($n) commits BEHIND ($ref) — STALE, do not trust for versions" })
+      print $"  ($flag)"
+    } else {
+      print $"  (could not compare against ($ref))"
+    }
+    let cargo = $"($repo)/Cargo.toml"
+    if ($cargo | path exists) {
+      let pins = (open --raw $cargo | lines | where ($it =~ '^\\s*connectrpc\\s*=') )
+      if ($pins | is-not-empty) { print $"  connectrpc pin in clone: ($pins | first | str trim)" }
+    }
+  }
+}
+print ""
+print "tag-deps (connectrpc/buffa) = read-only source matching our pins (src:sync)."
+print "fork/reference clones drift — verify upstream main, not the clone."

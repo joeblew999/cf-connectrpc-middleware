@@ -1,0 +1,23 @@
+#!/usr/bin/env nu
+#MISE description="cedar validate every policy dir: examples/*-policies/ trees + the rauthy-cedar example's app/policies/ (the policies it runs)"
+# Two layouts: standalone examples/*-policies/ (schema beside policies/) and the
+# rauthy-cedar example (schema + policies together in app/policies/).
+let standalone = (glob examples/*-policies | each {|dir|
+  { schema_glob: $"($dir)/*.cedarschema", policy_glob: $"($dir)/policies/*.cedar", name: ($dir | path basename) }
+})
+let inline = (glob examples/*/app/policies | each {|dir|
+  { schema_glob: $"($dir)/*.cedarschema", policy_glob: $"($dir)/*.cedar", name: ($dir | path dirname | path dirname | path basename) }
+})
+let trees = ($standalone | append $inline)
+if ($trees | is-empty) { print "no Cedar policy dirs found — skipping"; exit 0 }
+for tree in $trees {
+  let schemas = (glob $tree.schema_glob)
+  if ($schemas | is-empty) { print $"($tree.name): no .cedarschema — skipping"; continue }
+  let schema = ($schemas | first)
+  cedar check-parse --schema $schema
+  for policy in (glob $tree.policy_glob) {
+    print $"validate ($tree.name)/($policy | path basename)"
+    cedar validate --schema $schema --policies $policy
+  }
+  print $"($tree.name): OK"
+}

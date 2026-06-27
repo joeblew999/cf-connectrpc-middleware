@@ -1,0 +1,6 @@
+#!/usr/bin/env nu
+#MISE description="Quality gate: rustfmt + cargo:lint + cargo:test + cargo:machete"
+#MISE depends=["cargo:lint", "cargo:test", "cargo:machete"]
+# fmt inlined here (cargo:format alias dropped). Deps run the rest.
+cargo fmt --all
+print 'pre-commit checks passed'

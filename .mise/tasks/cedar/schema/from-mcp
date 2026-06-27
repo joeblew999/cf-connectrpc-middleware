@@ -1,0 +1,11 @@
+#!/usr/bin/env nu
+#MISE description="Generate a Cedar schema from an MCP tool-description manifest. Usage: mise run cedar:schema:from-mcp -- <schema-stub.cedarschema> <tool-descriptions.json> [output.cedarschema]"
+#USAGE arg "<schema_stub>" help="Cedar schema stub file used as the base (actions get appended to it)"
+#USAGE arg "<tool_descriptions>" help="JSON file of MCP tool descriptions to turn into Cedar actions"
+#USAGE arg "[output]" help="Where to write the generated schema (default: stdout)" default=""
+if ($env.usage_output | is-empty) {
+  cedar-policy-mcp-schema-generator generate $env.usage_schema_stub $env.usage_tool_descriptions
+} else {
+  cedar-policy-mcp-schema-generator generate $env.usage_schema_stub $env.usage_tool_descriptions --output $env.usage_output
+  print $"wrote ($env.usage_output)"
+}

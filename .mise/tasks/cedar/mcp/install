@@ -1,0 +1,16 @@
+#!/usr/bin/env nu
+#MISE description="Clone cedar-for-agents (if absent) + build the analysis MCP server (npm ci + tsc → dist/server.js). Upstream ships it Docker-only; build from source with the mise node toolchain."
+if not ($env.CEDAR_AGENTS_DIR | path exists) {
+  print $"cloning ($env.CEDAR_AGENTS_REPO) → ($env.CEDAR_AGENTS_DIR)"
+  git clone $"https://github.com/($env.CEDAR_AGENTS_REPO).git" $env.CEDAR_AGENTS_DIR
+} else {
+  print $"($env.CEDAR_AGENTS_DIR) present — git pull --ff-only"
+  git -C $env.CEDAR_AGENTS_DIR pull --ff-only
+}
+cd $env.CEDAR_MCP_DIR
+print "npm ci ..."
+npm ci
+print "npm run build (tsc) ..."
+npm run build
+print ""
+print "built. next: `mise run cedar:mcp:config` to get the JSON block for your MCP client."

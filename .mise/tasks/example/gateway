@@ -1,0 +1,3 @@
+#!/usr/bin/env nu
+#MISE description="Run + prove the rauthy-cedar multi-Worker gateway host: boots Rauthy, runs BOTH workers in one wrangler dev (gateway + api via [[services]]), asserts ProxyRead → binding → backend (needs Docker + wrangler)"
+nu examples/rauthy-cedar/gateway/serve.nu

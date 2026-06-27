@@ -1,0 +1,20 @@
+#!/usr/bin/env nu
+#MISE description="Build git-only Cedar binaries (cedar-language-server + cedar-policy-mcp-schema-generator) into .tools/bin via cargo install --git --rev. Idempotent. Prereq for cedar:lsp + cedar:schema:from-mcp."
+let bin = ".tools/bin"
+mkdir $bin
+# cedar-language-server (LSP) — a workspace member of cedar/, pinned commit.
+if (($bin | path join "cedar-language-server") | path exists) {
+  print "cedar-language-server: already built (.tools/bin)"
+} else {
+  print "building cedar-language-server — compiles cedar core, a few minutes..."
+  cargo install --git https://github.com/cedar-policy/cedar --rev 92b97a45c091bb285b997664bf14bfffd8c402cc cedar-language-server --root .tools --locked
+}
+# cedar-policy-mcp-schema-generator — workspace member of cedar-for-agents/, cli feature.
+if (($bin | path join "cedar-policy-mcp-schema-generator") | path exists) {
+  print "cedar-policy-mcp-schema-generator: already built (.tools/bin)"
+} else {
+  print "building cedar-policy-mcp-schema-generator..."
+  cargo install --git https://github.com/cedar-policy/cedar-for-agents --rev 5d3ade51dc1148bbf44d5acb90399defd13e604e cedar-policy-mcp-schema-generator --features cli --root .tools --locked
+}
+print ""
+print "done — binaries in .tools/bin (on PATH via [env] _.path). verify: cedar-language-server --help"

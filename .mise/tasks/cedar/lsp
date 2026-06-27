@@ -1,0 +1,3 @@
+#!/usr/bin/env nu
+#MISE description="Launch cedar-language-server over stdio (built by cedar:tools). Editors that spawn an LSP by command point here; VS Code users want cedar:vscode."
+cedar-language-server

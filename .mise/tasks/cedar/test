@@ -1,0 +1,11 @@
+#!/usr/bin/env nu
+#MISE description="cedar authorize against representative requests for every examples/*-policies/tests/run.nu. Non-zero exit on any mismatch."
+let runners = (glob examples/*-policies/tests/run.nu)
+if ($runners | is-empty) { print "no examples/*-policies/tests/run.nu — skipping"; exit 0 }
+for runner in $runners {
+  let dir = ($runner | path dirname | path dirname)
+  print $"── ($dir | path basename) ──"
+  cd $dir
+  nu tests/run.nu
+  cd -
+}

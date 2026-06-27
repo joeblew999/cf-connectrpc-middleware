@@ -1,0 +1,5 @@
+#!/usr/bin/env nu
+#MISE description="Lint the MIXED workspace with clippy (-D warnings): native --all-targets (incl. server) + wasm32 worker + wasm32 gateway"
+cargo clippy --workspace --all-targets -- -D warnings
+cargo clippy --target $env.WASM_TARGET --manifest-path examples/rauthy-cedar/worker/Cargo.toml -- -D warnings
+cargo clippy --target $env.WASM_TARGET --manifest-path examples/rauthy-cedar/gateway/Cargo.toml -- -D warnings

@@ -1,0 +1,3 @@
+#!/usr/bin/env nu
+#MISE description="Whole Rauthy+Cedar stack UP locally (Docker + ../vm-uncloud) — drives a REAL token through oidc→cedar, leaves Rauthy's GUI up. `-- --down` to tear down."
+nu scripts/stack-local.nu

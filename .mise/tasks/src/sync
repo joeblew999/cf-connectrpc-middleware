@@ -1,0 +1,29 @@
+#!/usr/bin/env nu
+#MISE description="Pin the foundation source clones: connectrpc+buffa at the Cargo.lock tag; connectrpc-workers at a commit (no 0.7 tag yet) — so READ == COMPILE"
+# Tier A1 — tag-derived: tag = v<version-in-Cargo.lock>.
+let lockdeps = [
+  { repo: "anthropics/connect-rust", crate: "connectrpc" }
+  { repo: "anthropics/buffa",        crate: "buffa" }
+]
+# Tier A2 — ref-pinned: no release tag for the version we need. Switch to a tag
+# once connectrpc-workers cuts a 0.7 release.
+let refdeps = [{ repo: "connyay/connectrpc-workers", ref: "a366077" }]
+let lock = (open Cargo.lock | from toml)
+for d in $lockdeps {
+  let dir = $".src/($d.repo | path basename)"
+  let ver = ($lock.package | where name == $d.crate | get version | first)
+  let want = $"v($ver)"
+  if not ($dir | path exists) { print $"cloning ($d.repo)"; git clone --quiet $"https://github.com/($d.repo).git" $dir }
+  git -C $dir fetch --quiet --tags
+  let co = (do { git -C $dir checkout --quiet $want } | complete)
+  if $co.exit_code == 0 { print $"  ($d.crate) ($ver) → @ ($want) ✓" } else { print $"  ⚠️  ($d.crate): tag ($want) missing — check tag scheme" }
+}
+for d in $refdeps {
+  let dir = $".src/($d.repo | path basename)"
+  if not ($dir | path exists) { print $"cloning ($d.repo)"; git clone --quiet $"https://github.com/($d.repo).git" $dir }
+  git -C $dir fetch --quiet --all
+  let co = (do { git -C $dir checkout --quiet $d.ref } | complete)
+  if $co.exit_code == 0 { print $"  ($d.repo | path basename) → @ ($d.ref) — commit-pin, no 0.7 tag yet ✓" } else { print $"  ⚠️  ($d.repo | path basename): ref ($d.ref) missing" }
+}
+print ""
+print "READ-ONLY source matching our pins. connectrpc-workers is commit-pinned until it releases 0.7 — then switch its `ref` to the tag."

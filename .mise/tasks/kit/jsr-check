@@ -1,0 +1,4 @@
+#!/usr/bin/env nu
+#MISE description="JSR dry-run on the kit (slow-types, packaging) — no publish"
+cd packages/kumo-connectrpc-kit
+aubx jsr publish --dry-run --allow-dirty

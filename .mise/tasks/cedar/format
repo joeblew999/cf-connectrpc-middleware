@@ -1,0 +1,4 @@
+#!/usr/bin/env nu
+#MISE description="Format every Cedar policy file in place: examples/*-policies/policies/ + the rauthy-cedar example's app/policies/"
+let files = (glob examples/*-policies/policies/*.cedar | append (glob examples/*/app/policies/*.cedar))
+for policy in $files { cedar format --policies $policy --write }

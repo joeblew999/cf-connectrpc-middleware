@@ -1,0 +1,5 @@
+#!/usr/bin/env nu
+#MISE description="Build the rauthy-cedar example three ways: native server + wasm backend worker + wasm gateway worker"
+cargo check -p rauthy-cedar-app -p rauthy-cedar-server
+cargo check --target $env.WASM_TARGET --manifest-path examples/rauthy-cedar/worker/Cargo.toml
+cargo check --target $env.WASM_TARGET --manifest-path examples/rauthy-cedar/gateway/Cargo.toml

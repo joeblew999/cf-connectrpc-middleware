@@ -1,0 +1,3 @@
+#!/usr/bin/env nu
+#MISE description="Deploy the whole Rauthy+Cedar stack across vm-uncloud(Hetzner)+saasmail(CF). DRY by default; `-- --execute` spends real money. Plan in deploy-stack.nuon."
+nu scripts/deploy-stack.nu

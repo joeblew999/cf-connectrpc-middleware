@@ -1,0 +1,4 @@
+#!/usr/bin/env nu
+#MISE description="Type-check the kit (tsc --noEmit)"
+cd packages/kumo-connectrpc-kit
+aubr typecheck

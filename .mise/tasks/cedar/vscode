@@ -1,0 +1,17 @@
+#!/usr/bin/env nu
+#MISE description="Install the official Cedar VS Code extension (cedar-policy.vscode-cedar) into your editor. Companion to .vscode/extensions.json + cedar:lsp."
+let ext = "cedar-policy.vscode-cedar"
+mut cli = ""
+for c in [code cursor codium code-insiders] {
+  if (which $c | is-not-empty) { $cli = $c; break }
+}
+if ($cli == "") {
+  print "No VS Code-family CLI on PATH (tried code, cursor, codium, code-insiders)."
+  print $"Install ($ext) from your editor's Extensions view, or enable the shell"
+  print "command first: Cmd/Ctrl+Shift+P → 'Shell Command: Install code in PATH'."
+  print "Source: https://github.com/cedar-policy/vscode-cedar"
+  exit 1
+}
+print $"Installing ($ext) via ($cli) ..."
+^$cli --install-extension $ext --force
+print $"Installed via ($cli). .vscode/extensions.json also recommends it on repo open."

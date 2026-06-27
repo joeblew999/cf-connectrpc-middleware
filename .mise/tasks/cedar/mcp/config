@@ -1,0 +1,18 @@
+#!/usr/bin/env nu
+#MISE description="Print the mcpServers JSON block for the Cedar analysis MCP server, pointing node at the locally-built dist/server.js. Paste into your Claude/Q MCP config."
+let server = $"($env.CEDAR_MCP_DIR)/dist/server.js"
+if not ($server | path exists) {
+  print $"not built yet: ($server) missing — run `mise run cedar:mcp:install` first."
+  exit 1
+}
+let abs = ($server | path expand)
+let node = (which node | get path.0?)
+print "── paste into your MCP client config (e.g. ~/.claude.json mcpServers, or ~/.aws/amazonq/mcp.json) ──"
+print ({
+  mcpServers: {
+    "cedar-analysis": { command: ($node | default "node"), args: [$abs], env: {} }
+  }
+} | to json --indent 2)
+print ""
+print "tools exposed: verify-policy-changes, detect-policy-issues, add-and-verify-new-policy-workflow"
+print "point it at examples/remy-sport-policies/policies/*.cedar to reason about the remy-sport matrix."

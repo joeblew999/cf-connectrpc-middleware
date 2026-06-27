@@ -1,0 +1,4 @@
+#!/usr/bin/env nu
+#MISE description="Test the rauthy-cedar example: crate tests + the Cedar policy proof (no external deps)"
+cargo test -p rauthy-cedar-app -p rauthy-cedar-server
+nu examples/rauthy-cedar/tests/run.nu

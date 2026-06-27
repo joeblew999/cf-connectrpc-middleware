@@ -1,0 +1,3 @@
+#!/usr/bin/env nu
+#MISE description="Run + prove the rauthy-cedar single CF Worker host: boots Rauthy, mints a token, runs the backend Worker via wrangler dev, asserts oidc→cedar + gRPC reflection (needs Docker + wrangler)"
+nu examples/rauthy-cedar/worker/serve.nu

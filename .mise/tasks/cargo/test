@@ -1,0 +1,3 @@
+#!/usr/bin/env nu
+#MISE description="Run tests on native target (library is target-agnostic)"
+cargo test

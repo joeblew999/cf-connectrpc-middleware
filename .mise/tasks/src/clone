@@ -1,0 +1,12 @@
+#!/usr/bin/env nu
+#MISE description="Clone the three connyay reference example repos into .src/ (the fork/reference clones; foundation tag-deps come from src:sync)"
+mkdir .src
+let repos = ["connectrpc-workers", "example-multitenant-worker", "example-connectrpc-worker"]
+for name in $repos {
+  let dest = $".src/($name)"
+  if ($dest | path exists) {
+    print $"($name): already cloned, skipping"
+  } else {
+    git clone $"https://github.com/($env.UPSTREAM)/($name).git" $dest
+  }
+}

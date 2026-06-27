@@ -1,0 +1,4 @@
+#!/usr/bin/env nu
+#MISE description="Publish the kit to JSR. Normally CI does this on push (OIDC); this is the manual path."
+cd packages/kumo-connectrpc-kit
+aubx jsr publish
