@@ -36,3 +36,15 @@ CONNECTRPC_CEDAR_WORKER_URL = { provider = "keychain", value = "CONNECTRPC_CEDAR
 # Remote D1 database id. Stored in the keychain instead of editing
 # wrangler.toml.
 CONNECTRPC_CEDAR_D1_DATABASE_ID= { provider = "keychain", value = "CONNECTRPC_CEDAR_D1_DATABASE_ID" }
+
+# ── Publishing tokens (the release tasks) ──────────────────────────────────
+# User-level, shared across repos like the CLOUDFLARE_* creds (bare names).
+# Store once in the keychain — MUST pass `-p keychain` or fnox inlines the
+# value as plaintext into this file:
+#   fnox set -p keychain CARGO_REGISTRY_TOKEN <token>   # crates.io/settings/tokens
+#   fnox set -p keychain JSR_TOKEN            <token>   # jsr.io → account → tokens
+#
+# Consumed by: `cargo:publish -- --execute` (cargo reads CARGO_REGISTRY_TOKEN
+# from env) and `kit:jsr-publish` (passes JSR_TOKEN to `jsr publish --token`).
+CARGO_REGISTRY_TOKEN = { provider = "keychain", value = "CARGO_REGISTRY_TOKEN" }
+JSR_TOKEN            = { provider = "keychain", value = "JSR_TOKEN" }

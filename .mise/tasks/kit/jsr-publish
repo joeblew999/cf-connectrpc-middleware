@@ -1,4 +1,11 @@
 #!/usr/bin/env nu
-#MISE description="Publish the kit to JSR. Normally CI does this on push (OIDC); this is the manual path."
+#MISE description="Publish the kit to JSR (token from fnox: JSR_TOKEN). Use kit:jsr-check for a dry run."
+# jsr publish takes --token (no env fallback); pull it from fnox/keychain.
+let t = (do { ^fnox get JSR_TOKEN } | complete)
+if $t.exit_code != 0 {
+  print -e "JSR_TOKEN not in fnox/keychain. Set it once:"
+  print -e "  fnox set -p keychain JSR_TOKEN <token from jsr.io account tokens>"
+  exit 1
+}
 cd packages/kumo-connectrpc-kit
-aubx jsr publish
+^aubx jsr publish --token ($t.stdout | str trim)

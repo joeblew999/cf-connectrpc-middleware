@@ -1,15 +1,23 @@
 #!/usr/bin/env nu
-#MISE description="Publish all workspace crates to crates.io. DRY by default; `-- --execute` publishes for real (IRREVERSIBLE — needs `cargo login`)."
+#MISE description="Publish all workspace crates to crates.io. DRY by default; `-- --execute` publishes for real (IRREVERSIBLE — token from fnox: CARGO_REGISTRY_TOKEN)."
 # `cargo publish --workspace` (cargo 1.90+) publishes every non-`publish=false`
 # member, ordering by dependency and waiting for each to index before the
 # crates that depend on it — so the 9 connectrpc-* crates go up in one command;
 # the rauthy-cedar example crates are `publish = false` and skipped.
 def main [--execute] {
-  if $execute {
-    print "EXECUTE — publishing all crates to crates.io for real. IRREVERSIBLE."
-    ^cargo publish --workspace
-  } else {
-    print "DRY RUN — nothing is published. Pass `-- --execute` to publish (IRREVERSIBLE; needs `cargo login`)."
+  if not $execute {
+    print "DRY RUN — nothing is published. Pass `-- --execute` to publish (IRREVERSIBLE)."
     ^cargo publish --workspace --dry-run
+    return
   }
+  # Real publish: cargo reads CARGO_REGISTRY_TOKEN from env; pull it from fnox
+  # (keychain) so no `cargo login` / plaintext token on disk.
+  let t = (do { ^fnox get CARGO_REGISTRY_TOKEN } | complete)
+  if $t.exit_code != 0 {
+    print -e "CARGO_REGISTRY_TOKEN not in fnox/keychain. Set it once:"
+    print -e "  fnox set -p keychain CARGO_REGISTRY_TOKEN <token from crates.io/settings/tokens>"
+    exit 1
+  }
+  print "EXECUTE — publishing all crates to crates.io for real. IRREVERSIBLE."
+  with-env { CARGO_REGISTRY_TOKEN: ($t.stdout | str trim) } { ^cargo publish --workspace }
 }
