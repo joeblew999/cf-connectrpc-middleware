@@ -3,7 +3,7 @@
 idiomatic_version_file_enable_tools = ["rust"]
 
 [tools]
-node = "latest"
+node = "26.10.0"
 "aqua:nushell/nushell" = "latest"
 
 # Cloudflare Workers CLI: dev server + deploys. Drives worker-build.
