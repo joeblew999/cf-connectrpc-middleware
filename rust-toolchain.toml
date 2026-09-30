@@ -1,4 +1,4 @@
 # The one Rust pin for this repo. rustup, rust-analyzer and CI read it directly;
 # mise installs it too (mise.toml: idiomatic_version_file_enable_tools).
 [toolchain]
-channel = "1.95.0"
+channel = "1.98.1"
