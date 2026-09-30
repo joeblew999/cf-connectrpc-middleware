@@ -4,12 +4,12 @@ idiomatic_version_file_enable_tools = ["rust"]
 
 [tools]
 node = "26.10.0"
-"aqua:nushell/nushell" = "latest"
+"aqua:nushell/nushell" = "0.116.0"
 
 # Cloudflare Workers CLI: dev server + deploys. Drives worker-build.
 # Note: `buf` is intentionally NOT here. protoc IS (below) — connectrpc-build
 # 0.6 shells out to it for codegen.
-"npm:wrangler" = "latest"
+"npm:wrangler" = "4.143.0"
 
 # protoc — REQUIRED by connectrpc-build 0.6's build.rs codegen (it shells
 # out to `protoc`). connectrpc-build 0.4 used a pure-Rust path and needed
@@ -20,11 +20,11 @@ node = "26.10.0"
 "aqua:protocolbuffers/protobuf/protoc" = "35.0"
 
 # Frontend (consumer examples). Kumo UI for the Orange theme.
-"npm:@cloudflare/kumo" = "latest"
+"npm:@cloudflare/kumo" = "2.14.0"
 
 # aube — fast pnpm/npm replacement by jdx (the mise author): aube/aubr/aubx.
 # Reads the existing pnpm-lock (no migration). The kit:* tasks use it.
-"aqua:jdx/aube" = "latest"
+"aqua:jdx/aube" = "2.6.0"
 
 # Cedar policy CLI (validate / authorize / format). Matches runtime cedar-policy = "4".
 "cargo:cedar-policy-cli" = "4.11.0"
@@ -45,7 +45,7 @@ node = "26.10.0"
 # toolchain own it.
 
 # Dev-quality tools: unused deps (matters for wasm binary size).
-"cargo:cargo-machete" = "latest"
+"cargo:cargo-machete" = "0.9.2"
 
 
 [env]
