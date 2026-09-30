@@ -3,6 +3,7 @@
 idiomatic_version_file_enable_tools = ["rust"]
 
 [tools]
+"npm:pnpm" = "10.15.0"
 node = "26.10.0"
 "aqua:nushell/nushell" = "0.116.0"
 
