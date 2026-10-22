@@ -55,8 +55,8 @@ repository = "https://github.com/joeblew999/cf-connectrpc-middleware"
 # never encode messages, so they stay proto-agnostic. A crate that SERVES a
 # Connect service must add `features = ["json"]` itself, or JSON requests get
 # HTTP 415 (see examples/rauthy-cedar/app).
-# NOTE: .src/example-multitenant-worker (connyay fork) still pins 0.6 and
-# needs bumping to 0.9 before it builds against these crates.
+# .src/example-multitenant-worker (our fork, `cedar` branch) path-deps these
+# crates; it is on 0.9 too (joeblew999/example-multitenant-worker#1).
 [workspace.dependencies]
 connectrpc       = { version = "0.9.1", default-features = false }
 cedar-policy     = "4"
