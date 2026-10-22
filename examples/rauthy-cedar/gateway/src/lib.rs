@@ -44,9 +44,7 @@ use rauthy_cedar_app::proto::demo::v1::{ApiClient, Request as ApiRequest};
 mod proto {
     connectrpc::include_generated!();
 }
-use proto::gateway::v1::{
-    GatewayService, GatewayServiceExt, ProxyReadRequest, ProxyReadResponse,
-};
+use proto::gateway::v1::{GatewayService, GatewayServiceExt, ProxyReadRequest, ProxyReadResponse};
 
 /// Service-binding name in `wrangler.toml` for the upstream backend (the api
 /// Worker that runs the OIDC -> Cedar middleware stack).

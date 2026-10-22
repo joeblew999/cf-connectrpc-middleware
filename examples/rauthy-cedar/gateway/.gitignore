@@ -1,4 +1,3 @@
 /target
 /build
 .wrangler
-Cargo.lock
