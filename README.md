@@ -30,19 +30,24 @@ one shared app, hosted by `server/` (native) and `worker/` (edge).
 
 ## Built on
 
-A thin layer — the heavy lifting is upstream, all on the `0.7` line:
+A thin layer — the heavy lifting is upstream, all on the `0.9` line:
 
 | Repo | Role | Version |
 | --- | --- | --- |
-| [anthropics/connect-rust](https://github.com/anthropics/connect-rust) | ConnectRPC runtime; its `Router` is the `tower::Service` we wrap; compiles to wasm | `connectrpc 0.7` |
-| [anthropics/buffa](https://github.com/anthropics/buffa) | protobuf codec `connectrpc` uses (pure-Rust, wasm-clean) | `0.7.1` (transitive) |
-| [connyay/connectrpc-workers](https://github.com/connyay/connectrpc-workers) | Workers **client** transport — the only way a Worker can *call* a Connect service | `0.7` (main; no release tag yet) |
-| [cloudflare/workers-rs](https://github.com/cloudflare/workers-rs) | the `worker` Workers binding: `fetch` transport + AE/Rate-Limit/KV bindings | `0.8` |
+| [anthropics/connect-rust](https://github.com/anthropics/connect-rust) | ConnectRPC runtime; its `Router` is the `tower::Service` we wrap; compiles to wasm | `connectrpc 0.9.1` |
+| [anthropics/buffa](https://github.com/anthropics/buffa) | protobuf codec `connectrpc` uses (pure-Rust, wasm-clean) | `0.9.2` |
+| [connyay/connectrpc-workers](https://github.com/connyay/connectrpc-workers) | Workers **client** transport — the only way a Worker can *call* a Connect service | `0.6.0` (built on connectrpc 0.9) |
+| [cloudflare/workers-rs](https://github.com/cloudflare/workers-rs) | the `worker` Workers binding: `fetch` transport + AE/Rate-Limit/KV bindings | `0.8.7` (needs Rust ≥ 1.91) |
 | [cedar-policy/cedar](https://github.com/cedar-policy/cedar) | authz engine; runs inside the Worker | `4` |
 | [sebadob/rauthy](https://github.com/sebadob/rauthy) | OIDC identity provider (runs server-side via [vm-uncloud](https://github.com/joeblew999/vm-uncloud)) | `0.35.2` |
 
 The root `Cargo.toml [workspace.dependencies]` is the source of truth for pins.
 **A pin is a snapshot, not a freeze — we upgrade when an upstream we need moves.**
+
+The workspace pins `connectrpc` with `default-features = false`, which (since
+0.8) also drops the Connect JSON codec. The middleware crates never encode
+messages, so they don't need it — but a crate that **serves** a Connect service
+must add `features = ["json"]`, or every `application/json` request is HTTP 415.
 
 ## The crates
 
@@ -82,16 +87,18 @@ both run paths and the expected output.
 `.src/` (gitignored) holds the upstream source we read, pinned so it can't go
 stale or drift from what we compile:
 
-- `mise run src:sync` — checks out each pinned upstream: `connect-rust` and
-  `buffa` at the git **tag** matching `Cargo.lock`; `connectrpc-workers` at a
-  fixed **commit** (it has no 0.7 release tag yet).
+- `mise run src:sync` — checks out each pinned upstream at the git **tag**
+  matching its lockfile: `connect-rust` and `buffa` from `Cargo.lock`,
+  `connectrpc-workers` from `examples/rauthy-cedar/gateway/Cargo.lock` (its only
+  consumer).
 - `mise run src:check` — verifies each clone is at its pin; flags any that drifted.
 
 **Never trust a clone for version facts** — check upstream `main`/crates.io.
 `cargo update` refreshes the lock in-semver (cheap freshness).
 
-> **Known blocker:** [mathematic-inc/protovalidate-buffa](https://github.com/mathematic-inc/protovalidate-buffa)
-> (request validation) is still on `buffa 0.6`; can't adopt until it bumps to 0.7.
+> **Unblocked, not adopted:** [mathematic-inc/protovalidate-buffa](https://github.com/mathematic-inc/protovalidate-buffa)
+> (request validation) `0.7.2` is on `buffa 0.9` + `connectrpc 0.9`, the same line
+> as this workspace, so it can be adopted when request validation is wanted.
 
 ## Layout
 

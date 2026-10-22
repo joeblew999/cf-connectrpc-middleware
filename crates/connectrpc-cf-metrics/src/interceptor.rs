@@ -20,7 +20,8 @@
 
 use std::sync::Arc;
 
-use connectrpc::{ConnectError, Interceptor, Next, UnaryRequest, UnaryResponse, async_trait};
+use connectrpc::interceptor::{UnaryRequest, UnaryResponse};
+use connectrpc::{ConnectError, Interceptor, Next, async_trait};
 use web_time::Instant;
 
 use crate::sink::MetricSink;

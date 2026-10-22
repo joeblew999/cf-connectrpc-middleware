@@ -19,7 +19,7 @@
 //! unmapped procedure) — the interceptor passes through without
 //! evaluating, exactly like the Layer.
 
-use connectrpc::UnaryRequest;
+use connectrpc::interceptor::UnaryRequest;
 use connectrpc_cedar::CedarRequest;
 
 /// How [`CedarInterceptor`](crate::CedarInterceptor) turns a decoded
@@ -28,7 +28,7 @@ use connectrpc_cedar::CedarRequest;
 /// The blanket impl lets you pass a closure directly:
 ///
 /// ```ignore
-/// let extractor = |req: &connectrpc::UnaryRequest| -> Option<CedarRequest> {
+/// let extractor = |req: &connectrpc::interceptor::UnaryRequest| -> Option<CedarRequest> {
 ///     let session = req.ctx.extensions().get::<Session>()?;
 ///     let path = req.ctx.path()?;
 ///     // body-aware: read a field off the decoded message

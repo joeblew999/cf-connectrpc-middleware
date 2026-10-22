@@ -3,7 +3,7 @@
 //! Cedar policy authorization on the **`connectrpc::Interceptor`** surface
 //! — the body-aware sibling of [`connectrpc-cedar`](connectrpc_cedar)'s
 //! `tower::Layer`. This is the body-aware authz surface, built on the
-//! `Interceptor` trait from connectrpc 0.7.
+//! `Interceptor` trait from connectrpc 0.9.
 //!
 //! ## Layer vs Interceptor — when to use which
 //!
@@ -28,7 +28,7 @@
 //!
 //! let authorizer = Arc::new(CedarAuthorizer::from_str(SCHEMA, POLICIES)?);
 //!
-//! let interceptor = CedarInterceptor::shadow(authorizer, |req: &connectrpc::UnaryRequest| {
+//! let interceptor = CedarInterceptor::shadow(authorizer, |req: &connectrpc::interceptor::UnaryRequest| {
 //!     let session = req.ctx.extensions().get::<Session>()?;
 //!     // body-aware: read a field off the decoded request message
 //!     // let org = req.payload.message::<CreateOrgRequest>().ok()?;

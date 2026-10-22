@@ -40,9 +40,10 @@ use std::task::{Context as TaskContext, Poll};
 
 use bytes::Bytes;
 use cedar_policy::{Context, EntityUid, RestrictedExpression};
+use connectrpc::interceptor::UnaryRequest;
 use connectrpc::{
     ConnectError, ConnectRpcService, ErrorCode, RequestContext, Response, Router, ServiceRequest,
-    ServiceResult, ServiceStream, StreamMessage, UnaryRequest,
+    ServiceResult, ServiceStream, StreamMessage,
 };
 use connectrpc_cedar::{CedarLayer, CedarRequest, action::action_from_path};
 use connectrpc_cedar_interceptor::CedarInterceptor;
@@ -792,5 +793,38 @@ mod tests {
             resp.status.as_known(),
             Some(health::health_check_response::ServingStatus::SERVING)
         );
+    }
+
+    /// A Connect JSON request through the WHOLE `make()` stack is decoded and
+    /// answered. Guards the connectrpc >= 0.8 trap: the JSON codec is behind the
+    /// default-on `json` feature, which the workspace's `default-features =
+    /// false` drops, and without it every `application/json` call is HTTP 415.
+    /// Health/Check is a public path, so no Rauthy token is needed.
+    #[tokio::test]
+    async fn connect_json_request_is_served() {
+        use http_body_util::BodyExt as _;
+        use tower::ServiceExt as _;
+
+        // RFC 8037 A.2's public Ed25519 key — any usable key will do; no token
+        // is ever verified against it on a public path.
+        let jwks = r#"{"keys":[{"kty":"OKP","crv":"Ed25519","kid":"t","x":"11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo"}]}"#;
+        let verifier =
+            Arc::new(JwksVerifier::from_jwks_json("https://issuer.test", None, jwks).unwrap());
+        let svc = make::<Full<Bytes>, _, _>(
+            verifier,
+            connectrpc_cf_metrics::NoopSink::new(),
+            connectrpc_cf_rate_limit::AllowAll::new(),
+        );
+        let req = http::Request::post("/grpc.health.v1.Health/Check")
+            .header(http::header::CONTENT_TYPE, "application/json")
+            .body(Full::new(Bytes::from_static(b"{}")))
+            .unwrap();
+
+        let resp = svc.oneshot(req).await.unwrap();
+        let status = resp.status();
+        let body = resp.into_body().collect().await.unwrap().to_bytes();
+        let body = String::from_utf8_lossy(&body);
+        assert_eq!(status, http::StatusCode::OK, "body: {body}");
+        assert!(body.contains("SERVING"), "body: {body}");
     }
 }

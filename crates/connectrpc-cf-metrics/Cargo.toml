@@ -19,7 +19,7 @@ crate-type = ["cdylib", "rlib"]
 #   - `layer`       — transparent tower::Layer (reads req.uri().path())
 #   - `interceptor` — connectrpc::Interceptor (reads Spec::procedure,
 #                     derives status from the typed Result<_, ConnectError>)
-# The interceptor module depends on connectrpc 0.7's `Interceptor` trait.
+# The interceptor module depends on connectrpc 0.9's `Interceptor` trait.
 # The Layer needs none of it.
 connectrpc.workspace       = true
 tower.workspace            = true

@@ -6,7 +6,7 @@
 name = "rauthy-cedar-worker"
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.88"
+rust-version = "1.91"  # worker 0.8.7's floor
 publish = false
 
 [lib]
@@ -23,8 +23,8 @@ connectrpc-oidc = { path = "../../../crates/connectrpc-oidc", features = ["worke
 connectrpc-cf-metrics    = { path = "../../../crates/connectrpc-cf-metrics" }
 connectrpc-cf-rate-limit = { path = "../../../crates/connectrpc-cf-rate-limit" }
 
-worker        = { version = "0.8", features = ["http"] }
-worker-macros = { version = "0.8", features = ["http"] }
+worker        = { version = "0.8.7", features = ["http"] }
+worker-macros = { version = "0.8.7", features = ["http"] }
 
 http  = "1"
 tower = { version = "0.5", default-features = false }

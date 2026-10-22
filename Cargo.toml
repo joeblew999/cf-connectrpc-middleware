@@ -39,20 +39,26 @@ exclude = [
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.88"
+# 1.91 = worker 0.8.7's floor (connectrpc-oidc's `worker-jwks` feature and the
+# example Workers pull it in).
+rust-version = "1.91"
 authors = ["Joe Blew <gedw99@gmail.com>"]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/joeblew999/cf-connectrpc-middleware"
 
 # Shared dep pins — this workspace is the single source of truth for pins.
-# `connectrpc` = anthropics/connect-rust, pinned to 0.7 (current release);
-# message types come from buffa (transitive). `default-features = false`
+# `connectrpc` = anthropics/connect-rust, pinned to 0.9 (current release);
+# message types come from buffa 0.9 (transitive). `default-features = false`
 # keeps the wasm32 build lean — the Router is a `tower::Service` without
 # the hyper `server` feature, so it runs natively AND on Cloudflare Workers.
+# It also drops the `json` codec (default-on since 0.8): the middleware crates
+# never encode messages, so they stay proto-agnostic. A crate that SERVES a
+# Connect service must add `features = ["json"]` itself, or JSON requests get
+# HTTP 415 (see examples/rauthy-cedar/app).
 # NOTE: .src/example-multitenant-worker (connyay fork) still pins 0.6 and
-# needs bumping to 0.7 before it builds against these crates.
+# needs bumping to 0.9 before it builds against these crates.
 [workspace.dependencies]
-connectrpc       = { version = "0.7", default-features = false }
+connectrpc       = { version = "0.9.1", default-features = false }
 cedar-policy     = "4"
 tower            = { version = "0.5", default-features = false }
 http             = "1"
