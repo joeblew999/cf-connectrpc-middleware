@@ -13,7 +13,7 @@ for d in $lockdeps {
   let ver = ($lock.package | where name == $d.crate | get version | first)
   let want = $"v($ver)"
   if not ($dir | path exists) { print $"cloning ($d.repo)"; git clone --quiet $"https://github.com/($d.repo).git" $dir }
-  git -C $dir fetch --quiet --tags
+  git -C $dir fetch --quiet --all --tags  # all remotes: a fork origin can lack upstream's tags
   let co = (do { git -C $dir checkout --quiet $want } | complete)
   if $co.exit_code == 0 { print $"  ($d.crate) ($ver) → @ ($want) ✓" } else { print $"  ⚠️  ($d.crate): tag ($want) missing — check tag scheme" }
 }
