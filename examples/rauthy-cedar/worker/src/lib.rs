@@ -47,7 +47,9 @@ impl MetricSink for AeMetricSink {
         for (_, v) in labels {
             point = point.add_blob(*v);
         }
-        let _ = self.0.write_data_point(&point.add_double(value as f64).build());
+        let _ = self
+            .0
+            .write_data_point(&point.add_double(value as f64).build());
     }
 
     async fn histogram(&self, name: &str, value: f64, labels: &[(&str, &str)]) {
